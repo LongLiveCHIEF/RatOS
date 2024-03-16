@@ -10,6 +10,9 @@ src/workspace
 # Ignore src/image
 src/image/**
 
+# language ignores
+node_modules
+
 # Ignore build.log
 src/build.log
 src/vagrant/*.log
@@ -20,3 +23,6 @@ build.log
 .DS_Store
 *~
 .*.swp
+
+.nx/installation
+.nx/cache

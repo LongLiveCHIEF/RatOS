@@ -1,0 +1,10 @@
+{
+    "name": "ratos",
+    "version": "2.0.0",
+    "license": "GPL-3.0",
+    "devDependencies": {
+        "@nx/workspace": "18.0.8",
+        "nx": "18.0.8"
+    },
+    "nx": {}
+}

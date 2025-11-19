@@ -1,13 +1,38 @@
 #!/usr/bin/env bash
-# because the builder kept failing to resolve 'deb.debian.org' https://stackoverflow.com/a/51037151
-########
+# Stabilize DNS and apt inside the chroot (resolv.conf may be a dangling symlink)
 
-# Source error handling, leave this in place
-set -xe
-
-# Source CustomPIOS common.sh
+set -Ee
 # shellcheck disable=SC1091
 source /common.sh
 install_cleanup_trap
 
-echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+# 1) Replace any /etc/resolv.conf symlink with a plain file
+rm -f /etc/resolv.conf
+cat > /etc/resolv.conf <<'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
+chmod 0644 /etc/resolv.conf
+
+# 2) Make sure /etc/hosts is sane (prevents odd hostname lookups)
+grep -q '^127\.0\.0\.1[[:space:]]\+localhost' /etc/hosts || echo "127.0.0.1 localhost" >> /etc/hosts
+HN="$(hostname 2>/dev/null || echo ratos)"
+grep -q "127.0.1.1 ${HN}" /etc/hosts || echo "127.0.1.1 ${HN}" >> /etc/hosts
+
+# 3) APT hardening: retries, timeouts, IPv4 only (GitHub runners often have flaky v6)
+cat >/etc/apt/apt.conf.d/99retries <<'EOF'
+Acquire::Retries "5";
+Acquire::http::Timeout "30";
+Acquire::https::Timeout "30";
+EOF
+cat >/etc/apt/apt.conf.d/99force-ipv4 <<'EOF'
+Acquire::ForceIPv4 "true";
+EOF
+
+# 4) Ensure CA certificates so HTTPS mirrors validate cleanly
+DEBIAN_FRONTEND=noninteractive apt-get update || true
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates || true
+update-ca-certificates || true
+
+# (Optional) Warm up indexes once more with the new settings
+DEBIAN_FRONTEND=noninteractive apt-get update || true

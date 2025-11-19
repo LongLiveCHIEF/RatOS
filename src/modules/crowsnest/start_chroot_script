@@ -21,6 +21,16 @@ install_cleanup_trap
 # Module only Variables
 CN_BUILD_PACKAGE_FILE="/tmp/cn_packages.lst"
 
+# Helper: run command as BASE_USER
+run_as_base() {
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="$PATH" "$@"
+    else
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
+    fi
+}
+
 # Helper Func
 is_raspbian() {
     if [[ -f /boot/config.txt ]] && [[ -f /etc/rpi-issue ]]; then
@@ -52,7 +62,21 @@ pushd "/home/${BASE_USER}" &> /dev/null || exit 1
 
 ## Step 2: clone crowsnest repo
 echo_green "Clone crowsnest repository ..."
-gitclone CROWSNEST_REPO crowsnest
+if [[ -d "/home/${BASE_USER}/crowsnest/.git" ]]; then
+    echo_green "Updating existing repo /home/${BASE_USER}/crowsnest"
+    run_as_base git -C "/home/${BASE_USER}/crowsnest" fetch --all --prune || true
+    if [[ -n "${CROWSNEST_BRANCH:-}" ]]; then
+        run_as_base git -C "/home/${BASE_USER}/crowsnest" checkout "${CROWSNEST_BRANCH}" || run_as_base git -C "/home/${BASE_USER}/crowsnest" checkout -B "${CROWSNEST_BRANCH}"
+        run_as_base git -C "/home/${BASE_USER}/crowsnest" reset --hard "origin/${CROWSNEST_BRANCH}" || true
+    else
+        run_as_base git -C "/home/${BASE_USER}/crowsnest" pull --ff-only || true
+    fi
+    if [[ -n "${CROWSNEST_REPO:-}" ]]; then
+        run_as_base git -C "/home/${BASE_USER}/crowsnest" remote set-url origin "${CROWSNEST_REPO}" || true
+    fi
+else
+    gitclone CROWSNEST_REPO crowsnest
+fi
 
 ## Step 3: grep PKGLIST from install.sh for dependencies
 echo_green "Generating packages file ..."

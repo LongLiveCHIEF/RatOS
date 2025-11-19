@@ -7,15 +7,32 @@ set -xe
 source /common.sh
 install_cleanup_trap
 
+run_as_base() {
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="$PATH" "$@"
+    else
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
+    fi
+}
+
 pushd /home/${BASE_USER}
 echo_green "Installing DFU-util build dependencies"
-apt-get -y install libusb-1.0-0-dev autoconf pandoc
+check_install_pkgs libusb-1.0-0-dev autoconf pandoc pkg-config make gcc
 echo_green "Cloning and building DFU-util"
- # Fallback to GitLab mirror if the official SourceForge is down... which it often is..
-git clone git://git.code.sf.net/p/dfu-util/dfu-util || git clone https://gitlab.com/dfu-util/dfu-util.git
-pushd /home/${BASE_USER}/dfu-util
-./autogen.sh
-./configure
+# Fallback to GitLab mirror if the official SourceForge is down... which it often is..
+DFU_SRC="/home/${BASE_USER}/dfu-util"
+if [[ -d "${DFU_SRC}/.git" ]]; then
+    echo_green "Updating existing DFU-util repository..."
+    run_as_base git -C "${DFU_SRC}" fetch --all --prune || true
+    run_as_base git -C "${DFU_SRC}" reset --hard origin/master || true
+else
+    run_as_base git clone git://git.code.sf.net/p/dfu-util/dfu-util "${DFU_SRC}" || run_as_base git clone https://gitlab.com/dfu-util/dfu-util.git "${DFU_SRC}"
+fi
+pushd "${DFU_SRC}"
+run_as_base ./autogen.sh
+run_as_base ./configure
+run_as_base make
 make install
 echo_green "Removing DFU-util build dependencies"
 apt-get -y purge pandoc

@@ -24,6 +24,39 @@ export LC_ALL=C
 source /common.sh
 install_cleanup_trap
 
+run_as_base() {
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="$PATH" "$@"
+    else
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
+    fi
+}
+
+refresh_repo_dir() {
+    local dir="$1"
+    local branch="$2"
+    local remote="$3"
+    if [[ -d "${dir}/.git" ]]; then
+        echo_green "Updating existing repo ${dir}"
+        run_as_base git -C "${dir}" fetch --all --prune || true
+        if [[ -n "${branch}" ]]; then
+            run_as_base git -C "${dir}" checkout "${branch}" || run_as_base git -C "${dir}" checkout -B "${branch}"
+            run_as_base git -C "${dir}" reset --hard "origin/${branch}" || true
+        else
+            run_as_base git -C "${dir}" pull --ff-only || true
+        fi
+        if [[ -n "${remote}" ]]; then
+            run_as_base git -C "${dir}" remote set-url origin "${remote}" || true
+        fi
+        return 0
+    fi
+    if [[ -d "${dir}" ]]; then
+        rm -rf "${dir}"
+    fi
+    return 1
+}
+
 
 echo_green "Installing mainsail Web Frontend and configuration..."
 
@@ -38,13 +71,13 @@ check_install_pkgs ${MAINSAIL_DEPS}
 
 ### Preparing nginx
 echo_green "Configure nginx webserver ..."
-rm /etc/nginx/sites-enabled/default
-ln -s /etc/nginx/sites-available/mainsail /etc/nginx/sites-enabled/
+rm /etc/nginx/sites-enabled/default 2>/dev/null || true
+ln -sf /etc/nginx/sites-available/mainsail /etc/nginx/sites-enabled/ || true
 
 
 # lower nginx rotate cycle to 2 instead 14
 echo_green "Modify logrotate cycle (14d -> 2d) ..."
-sudo sed -i 's/rotate 14/rotate 2/' /etc/logrotate.d/nginx
+sed -i 's/rotate 14/rotate 2/' /etc/logrotate.d/nginx || true
 
 # Fix logrotate.d permsissions
 chmod 644 /etc/logrotate.d/*
@@ -53,8 +86,13 @@ chmod 644 /etc/logrotate.d/*
 echo_green "Install mainsail Web Frontend ..."
 pushd /home/"${BASE_USER}" &> /dev/null || exit 1
 echo_green "Downloading Mainsail ..."
-sudo -u "${BASE_USER}" wget -q --show-progress -O mainsail.zip "${MAINSAIL_URL}"
-sudo -u "${BASE_USER}" unzip mainsail.zip -d /home/"${BASE_USER}"/mainsail
+run_as_base wget -q --show-progress -O mainsail.zip "${MAINSAIL_URL}"
+# Clean any previous install to avoid unzip prompts on re-run
+run_as_base rm -rf /home/"${BASE_USER}"/mainsail
+# Ensure target directory exists to avoid unzip prompts
+run_as_base mkdir -p /home/"${BASE_USER}"/mainsail
+# Unzip without prompting, overwrite existing files
+run_as_base unzip -o mainsail.zip -d /home/"${BASE_USER}"/mainsail
 ## cleanup
 rm /home/"${BASE_USER}"/mainsail.zip
 
@@ -62,27 +100,37 @@ rm /home/"${BASE_USER}"/mainsail.zip
 echo_green "Linking log files ..."
 # Make sure printer_data/logs exists
 if [[ ! -d "/home/${BASE_USER}/printer_data/logs" ]]; then
-    sudo -u "${BASE_USER}" mkdir -p "/home/${BASE_USER}/printer_data/logs"
+    run_as_base mkdir -p "/home/${BASE_USER}/printer_data/logs"
 fi
 ### Link logfiles to klipper_logs
-ln -s /var/log/nginx/mainsail-access.log /home/"${BASE_USER}"/printer_data/logs
-ln -s /var/log/nginx/mainsail-error.log /home/"${BASE_USER}"/printer_data/logs
+ln -sf /var/log/nginx/mainsail-access.log /home/"${BASE_USER}"/printer_data/logs || true
+ln -sf /var/log/nginx/mainsail-error.log /home/"${BASE_USER}"/printer_data/logs || true
 
 
 ### Install mainsail.cfg
 ## clone repo
 echo_green "Installing mainsail.cfg ..."
-gitclone MAINSAIL_CONFIG_REPO mainsail-config
+refresh_repo_dir "/home/${BASE_USER}/mainsail-config" "${MAINSAIL_CONFIG_BRANCH}" "${MAINSAIL_CONFIG_REPO}" || gitclone MAINSAIL_CONFIG_REPO mainsail-config
 
 # Make sure printer_data/config exists
 if [[ ! -d "/home/${BASE_USER}/printer_data/config" ]]; then
-    sudo -u "${BASE_USER}" mkdir -p "/home/${BASE_USER}/printer_data/config"
+    run_as_base mkdir -p "/home/${BASE_USER}/printer_data/config"
 fi
 if [[ -f "${MAINSAIL_CONFIG_SRC_PATH}" ]]; then
-    sudo -u "${BASE_USER}" \
-    ln -sf "${MAINSAIL_CONFIG_SRC_PATH}" "${MAINSAIL_CONFIG_DEST_PATH}"
+    run_as_base ln -sf "${MAINSAIL_CONFIG_SRC_PATH}" "${MAINSAIL_CONFIG_DEST_PATH}"
 fi
 
 popd &> /dev/null || exit 1
+
+# Ensure qemu helper is present inside the chroot (for aarch64); avoid text-file-busy
+if command -v qemu-aarch64-static >/dev/null 2>&1; then
+  dest="usr/bin/qemu-aarch64-static"
+  if [ -e "${dest}" ]; then
+    echo_green "qemu-aarch64-static already staged; skipping copy to avoid text-file-busy"
+  else
+    cp /usr/bin/qemu-aarch64-static "${dest}" || true
+  fi
+fi
+
 # Unpack root at the end, so files are modified before
 unpack /filesystem/root /

@@ -5,11 +5,19 @@
 
 
 # Source error handling, leave this in place
-set -x
-set -e
+set -Eex
 
 source /common.sh
 install_cleanup_trap
+
+run_as_base() {
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="$PATH" "$@"
+    else
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
+    fi
+}
 
 # Add root rights to X11
 echo_green "Adding root rights to X11.."
@@ -17,12 +25,40 @@ echo needs_root_rights=yes>>/etc/X11/Xwrapper.config
 
 echo_green "Installing KlipperScreen"
 
-cd /home/pi
-gitclone KLIPPERSCREEN KlipperScreen
-cd /home/pi/KlipperScreen
-sudo -u "${BASE_USER}" NETWORK="skipnetworkmanagerinstall" ./scripts/KlipperScreen-install.sh
+pushd "/home/${BASE_USER}"
+if [[ -d "/home/${BASE_USER}/KlipperScreen/.git" ]]; then
+    echo_green "Updating existing repo /home/${BASE_USER}/KlipperScreen"
+    run_as_base git -C "/home/${BASE_USER}/KlipperScreen" fetch --all --prune || true
+    if [[ -n "${KLIPPERSCREEN_BRANCH:-}" ]]; then
+        run_as_base git -C "/home/${BASE_USER}/KlipperScreen" checkout "${KLIPPERSCREEN_BRANCH}" || run_as_base git -C "/home/${BASE_USER}/KlipperScreen" checkout -B "${KLIPPERSCREEN_BRANCH}"
+        run_as_base git -C "/home/${BASE_USER}/KlipperScreen" reset --hard "origin/${KLIPPERSCREEN_BRANCH}" || true
+    else
+        run_as_base git -C "/home/${BASE_USER}/KlipperScreen" pull --ff-only || true
+    fi
+    if [[ -n "${KLIPPERSCREEN_SHIP:-}" ]]; then
+        run_as_base git -C "/home/${BASE_USER}/KlipperScreen" remote set-url origin "${KLIPPERSCREEN_SHIP}" || true
+    fi
+else
+    gitclone KLIPPERSCREEN KlipperScreen
+fi
+pushd "/home/${BASE_USER}/KlipperScreen"
+# Patch installer in-place: drop sudo (nosuid in chroot) and remove root guard
+sed -i 's/sudo //g' scripts/KlipperScreen-install.sh
+# Remove the EUID check block cleanly (lines around the root guard)
+sed -i '/if \[ "\$EUID" == 0 \]/{N;N;N;d;}' scripts/KlipperScreen-install.sh
+
+# Run installer as root with defaults (standalone yes, backend Xserver) 
+# Use BACKEND=W for Wayland
+# Use BACKEND=X for X11
+NETWORK="skipnetworkmanagerinstall" BACKEND="w" SERVICE="Y" DEBIAN_FRONTEND=noninteractive \
+  bash ./scripts/KlipperScreen-install.sh <<'EOF'
+
+
+EOF
+popd >/dev/null
+popd >/dev/null
 
 # Mute output from klipperscreen service
-sudo sed -i 's/\[Service\]/\[Service\]\n\StandardOutput=null\nStandardError=null/g' /etc/systemd/system/KlipperScreen.service
+sed -i 's/\[Service\]/\[Service\]\nStandardOutput=null\nStandardError=null/g' /etc/systemd/system/KlipperScreen.service || true
 
-sudo systemctl stop KlipperScreen
+systemctl_if_exists stop KlipperScreen

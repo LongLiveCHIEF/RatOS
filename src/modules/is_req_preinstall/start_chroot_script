@@ -28,6 +28,15 @@ fi
 source /common.sh
 install_cleanup_trap
 
+run_as_base() {
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="$PATH" "$@"
+    else
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
+    fi
+}
+
 echo_green "Install Input Shaper requirements ..."
 
 ### install all deps at once for time consumption reasons.
@@ -43,7 +52,19 @@ check_install_pkgs ${IS_REQ_PREINSTALL_DEPS}
 pushd "/home/${BASE_USER}" &> /dev/null || exit 1
 if [[ -d "${IS_REQ_PREINSTALL_VENV_DIR}" ]] && [[ -x "${IS_REQ_PREINSTALL_VENV_DIR}/bin/pip" ]]; then
     echo_green "Installing numpy..."
-    sudo -u "${BASE_USER}" "${IS_REQ_PREINSTALL_VENV_DIR}"/bin/pip install -v "${IS_REQ_PREINSTALL_PIP}"
+
+    # Use modern build tooling inside the existing venv
+    run_as_base "${IS_REQ_PREINSTALL_VENV_DIR}"/bin/pip install \
+        --upgrade "pip>=24.2" "setuptools>=75" "wheel>=0.44" "Cython>=0.29.37"
+
+    # Avoid pip’s isolated build env (which drags in old setuptools)
+    export PIP_NO_BUILD_ISOLATION=1
+
+    # Prefer a NumPy that supports Python 3.13. 2.1.x is fine.
+    # This will build from source using the system BLAS you installed.
+    run_as_base "${IS_REQ_PREINSTALL_VENV_DIR}"/bin/pip install -v \
+        "numpy==2.1.*"
+
 else
     echo_red "Klipper Venv not found!"
     return 1
@@ -51,7 +72,9 @@ fi
 
 ## Cleanup
 echo_green "Cleanup ..."
-sudo -u "${BASE_USER}" rm -rf "/home/${BASE_USER}/.cache"
+run_as_base rm -rf "/home/${BASE_USER}/.cache"
 popd  &> /dev/null || exit 1
+
+unset PIP_NO_BUILD_ISOLATION
 
 echo_green "Install Input Shaper requirements ... done!"

@@ -1,28 +1,70 @@
 #!/usr/bin/env bash
-#### CB1SPI - SB1 Configuration Module
-#from https://www.reddit.com/r/BIGTREETECH/comments/xfom6n/comment/it32e6v/
+#### CB1SPI - CB1 SPI enablement
+# Works with Armbian (armbianEnv.txt) and legacy BTT (BoardEnv.txt)
 
 # shellcheck enable=require-variable-braces
+set -Eex
 
-## Source error handling, leave this in place
-set -Ee
+# Noninteractive apt in chroot (harmless if unused)
+export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
-# Set DEBIAN_FRONTEND to noninteractive
-if [[ "${DEBIAN_FRONTEND}" != "noninteractive" ]]; then
-    export DEBIAN_FRONTEND=noninteractive
-fi
-
-## Source CustomPIOS common.sh
 # shellcheck disable=SC1091
 source /common.sh
 install_cleanup_trap
 
 echo_green "Enable SPI interface on CB1 SBC's ..."
 
-# Step 1: Copy default config to backup file
-cp "${CB1SPI_CONFIG_TXT_FILE}" "${CB1SPI_CONFIG_BAK_FILE}"
+# 1) Pick env file
+# Prefer explicit vars if provided by the build system, otherwise detect
+ENV_FILE=""
+if [[ -n "${CB1SPI_CONFIG_TXT_FILE:-}" && -f "${CB1SPI_CONFIG_TXT_FILE}" ]]; then
+  ENV_FILE="${CB1SPI_CONFIG_TXT_FILE}"
+else
+  for cand in /boot/armbianEnv.txt /boot/BoardEnv.txt; do
+    if [[ -f "$cand" ]]; then ENV_FILE="$cand"; break; fi
+  done
+fi
 
-# Step 2: Enable SPI
-sed -i 's/^#overlays=spidev1_2.*/overlays=spidev1_2/' "${CB1SPI_CONFIG_TXT_FILE}"
+# If nothing exists, create the Armbian-style file
+if [[ -z "$ENV_FILE" ]]; then
+  ENV_FILE="/boot/armbianEnv.txt"
+  touch "$ENV_FILE"
+fi
+
+# 2) Backup once if a path for backup was given, else make a .bak
+if [[ -n "${CB1SPI_CONFIG_BAK_FILE:-}" ]]; then
+  cp -f "$ENV_FILE" "${CB1SPI_CONFIG_BAK_FILE}" || true
+else
+  cp -f "$ENV_FILE" "${ENV_FILE}.bak" || true
+fi
+
+# 3) Normalize any commented overlays line (uncomment)
+#    This preserves current overlays content if present
+sed -i -E 's/^#\s*(overlays=)/\1/' "$ENV_FILE" || true
+
+# 4) Decide which overlay token to use
+#    - Armbian overlay token: spi-spidev
+#    - Legacy BTT token: spidev1_2
+OVERLAY_TOKEN="spi-spidev"
+case "$ENV_FILE" in
+  */BoardEnv.txt) OVERLAY_TOKEN="spidev1_2" ;;
+esac
+
+# If file already references one of the tokens, don't duplicate
+if grep -Eq '(^|\s)(spi-spidev|spidev1_2)(\s|$)' "$ENV_FILE"; then
+  : # already has a SPI overlay, keep it
+else
+  if grep -q '^overlays=' "$ENV_FILE"; then
+    # Append to existing overlays line (space separated)
+    sed -i "s/^overlays=\(.*\)$/overlays=\1 ${OVERLAY_TOKEN}/" "$ENV_FILE"
+  else
+    echo "overlays=${OVERLAY_TOKEN}" >> "$ENV_FILE"
+  fi
+fi
+
+# 5) Ensure spidev module loads at boot (harmless if duplicated)
+if ! grep -qx 'spidev' /etc/modules 2>/dev/null; then
+  echo 'spidev' >> /etc/modules
+fi
 
 echo_green "Enable SPI interface on CB1 SBC ... DONE!"

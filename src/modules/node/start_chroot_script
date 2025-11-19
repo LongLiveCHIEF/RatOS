@@ -1,23 +1,71 @@
 #!/usr/bin/env bash
 
-# Source error handling, leave this in place
-set -xe
+# Hardened Node.js + pnpm install for chroot builds
 
-# Source CustomPIOS common.sh
+set -Eex
+export LC_ALL=C
+[[ "${DEBIAN_FRONTEND:-}" == "noninteractive" ]] || export DEBIAN_FRONTEND=noninteractive
+
+# Source CustomPIOS helpers
 source /common.sh
 install_cleanup_trap
 
-if [[ ! -d /tmp ]]; then
-	mkdir /tmp
+run_as_base() {
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+    runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="/usr/local/bin:/usr/bin:/bin:$PATH" "$@"
+    else
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
+    fi
+}
+
+ensure_user_node_paths() {
+    local user_home="/home/${BASE_USER}"
+    local pnpm_bin="${user_home}/.local/share/pnpm"
+    mkdir -p "${user_home}/.local/share"
+    chown -R "${BASE_USER}:${BASE_USER}" "${user_home}/.local"
+    if ! grep -q 'pnpm' "${user_home}/.profile" 2>/dev/null; then
+        tee -a "${user_home}/.profile" >/dev/null <<'EOF'
+export PNPM_HOME="$HOME/.local/share/pnpm"
+case ":$PATH:" in
+  *:"$PNPM_HOME":*) ;;
+  *) export PATH="$PNPM_HOME:$PATH";;
+esac
+EOF
+        chown "${BASE_USER}:${BASE_USER}" "${user_home}/.profile"
+    fi
+    run_as_base mkdir -p "${pnpm_bin}"
+}
+
+NODE_MAJOR="${NODE_MAJOR:-20}"
+tmpdir="$(mktemp -d /tmp/node-setup-XXXXXX)"
+trap 'rm -rf "${tmpdir}"' EXIT
+
+curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o "${tmpdir}/setup_${NODE_MAJOR}.sh"
+bash "${tmpdir}/setup_${NODE_MAJOR}.sh"
+
+apt-get update
+check_install_pkgs nodejs
+
+# Prefer corepack (ships with node 18) but fall back to npm install -g
+if command -v corepack >/dev/null 2>&1; then
+    corepack enable || true
+    corepack prepare pnpm@latest --activate || true
 fi
 
-chmod 777 /tmp
+if ! command -v pnpm >/dev/null 2>&1; then
+    npm install -g pnpm
+fi
 
-curl -fsSL https://deb.nodesource.com/setup_18.x | bash - &&\
-apt update && apt install nodejs -y 
+if ! command -v pnpm >/dev/null 2>&1; then
+    echo "pnpm not found even after installation" >&2
+    exit 1
+fi
 
-npm install -g pnpm
-if ! which pnpm &> /dev/null; then
-	echo "pnpm not found after sourcing"
-	exit 1
+ensure_user_node_paths
+
+# Make sure the application user can see pnpm/Corepack (important for RatOS configurator)
+if ! run_as_base env PNPM_HOME="/home/${BASE_USER}/.local/share/pnpm" PATH="/home/${BASE_USER}/.local/share/pnpm:$PATH" which pnpm >/dev/null 2>&1; then
+    echo "pnpm not available for ${BASE_USER}" >&2
+    exit 1
 fi

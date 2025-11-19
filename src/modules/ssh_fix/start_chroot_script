@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# shellcheck enable=require-variable-braces
+
+set -Eeuo pipefail
+shopt -s inherit_errexit 2>/dev/null || true
+
+# CustomPiOS helpers
+# shellcheck disable=SC1091
+source /common.sh
+install_cleanup_trap
+
+SSHD_CONFIG="/etc/ssh/sshd_config"
+
+if [[ -f "${SSHD_CONFIG}" ]]; then
+  # Remove invalid IPQoS directives which break SSH on some Armbian builds.
+  sed -i '/^\s*IPQoS\b/d' "${SSHD_CONFIG}"
+fi

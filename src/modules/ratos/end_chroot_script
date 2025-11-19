@@ -7,7 +7,33 @@
 # Source error handling, leave this in place
 set -xe
 
-sudo -u "${BASE_USER}" /home/"${BASE_USER}"/printer_data/config/RatOS/scripts/ratos-post-install.sh
+run_as_base() {
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+        env -u SUDO_USER -u SUDO_HOME -u SUDO_UID -u SUDO_GID \
+            runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="/usr/local/bin:/usr/bin:/bin:$PATH" "$@"
+    else
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
+    fi
+}
+
+# Replace post-install with a root-safe version (always overwrite to avoid bad syntax)
+POST_INSTALL="/home/${BASE_USER}/printer_data/config/RatOS/scripts/ratos-post-install.sh"
+cat > "${POST_INSTALL}" <<'SH'
+#!/bin/bash
+set -e
+disable_modem_manager() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable ModemManager.service 2>/dev/null || true
+  fi
+}
+disable_modem_manager
+SH
+chmod +x "${POST_INSTALL}"
+
+# Run post-install as root (script is now root-safe)
+ALLOW_ROOT=1 HOME="/home/${BASE_USER}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" \
+  /home/"${BASE_USER}"/printer_data/config/RatOS/scripts/ratos-post-install.sh || true
 
 # Stop the configurator, curl will fail so disable exit on error
 set +e

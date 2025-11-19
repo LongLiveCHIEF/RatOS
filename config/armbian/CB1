@@ -2,22 +2,36 @@
 # Shebang for better file detection
 # shellcheck enable=require-variable-braces
 
+# Arch
 BASE_ARCH="arm64"
 BASE_IMAGE_ENLARGEROOT=10500
 BASE_IMAGE_RESIZEROOT=600
+
+# Create default user
 BASE_ADD_USER="yes"
 BASE_USER="pi"
 BASE_USER_PASSWORD="raspberry"
 
-# Image source
-DOWNLOAD_URL_CHECKSUM="https://github.com/bigtreetech/CB1/releases/download/V2.3.1/CB1_Debian11_Klipper_kernel5.16_20230215.img.sha256"
-DOWNLOAD_URL_IMAGE="https://github.com/bigtreetech/CB1/releases/download/V2.3.1/CB1_Debian11_minimal_kernel5.16_20230215.img.xz"
+# Image source (DOWNLOAD_BASE_URL should be defined by the workflow/env)
+DOWNLOAD_URL_CHECKSUM="${DOWNLOAD_BASE_URL}/armbian-bigtreetech_cb1_trixie.img.sha256"
+DOWNLOAD_URL_IMAGE="${DOWNLOAD_BASE_URL}/armbian-bigtreetech_cb1_trixie.img.xz"
 
-# export Variables
+# Compress not needed due compression done in workflow
+BASE_RELEASE_COMPRESS=no
+
+# Export variables
 export BASE_ARCH
 export BASE_IMAGE_ENLARGEROOT
 export BASE_IMAGE_RESIZEROOT
+export BASE_ADD_USER
+export BASE_USER
+export BASE_USER_PASSWORD
 export DOWNLOAD_URL_CHECKSUM
 export DOWNLOAD_URL_IMAGE
+export BASE_RELEASE_COMPRESS
 
-export MODULES="base,deb_namserver,passwordless_sudo,pkgupgrade(network,cb1config,klipper,node,is_req_preinstall,moonraker,cb1spi,ratos(mainsail,crowsnest,linear_movement_analysis,timelapse,klipperscreen,rpi_mcu,disable-services(hotspot_cb1),dfu-util),password-for-sudo),postrename"
+# Modules:
+# - deb_nameserver fixes DNS early in chroot
+# - pick ONE sudo policy (use password-for-sudo for releases)
+# - cb1config/cb1spi + hotspot_cb1 for CB1 specifics
+export MODULES="base,deb_nameserver,pkgupgrade(network,cb1config,klipper,node,is_req_preinstall,moonraker,cb1spi,ratos(mainsail,crowsnest,linear_movement_analysis,timelapse,klipperscreen,rpi_mcu,disable-services(hotspot_cb1),dfu-util),password-for-sudo),postrename"

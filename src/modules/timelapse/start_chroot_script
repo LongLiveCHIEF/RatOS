@@ -32,16 +32,23 @@ source /common.sh
 
 install_cleanup_trap
 
+run_as_base() {
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="$PATH" "$@"
+    else
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
+    fi
+}
+
 ## helper func moonraker update_manager
 add_timelapse_entry() {
     if [[ -f "${TIMELAPSE_CONFIG_DIR}/moonraker.conf" ]]; then
         if [[ -f "/tmp/moonraker.conf" ]]; then
             rm -rf /tmp/moonraker.conf
         fi
-        sudo -u "${BASE_USER}" \
-        cat "${TIMELAPSE_CONFIG_DIR}/moonraker.conf" "${TIMELAPSE_TEMPLATE}" | \
-        tee /tmp/moonraker.conf > /dev/null &&
-        cp -rf /tmp/moonraker.conf "${TIMELAPSE_CONFIG_DIR}/moonraker.conf"
+        run_as_base bash -c "cat '${TIMELAPSE_CONFIG_DIR}/moonraker.conf' '${TIMELAPSE_TEMPLATE}' > /tmp/moonraker.conf"
+        install -o "${BASE_USER}" -g "${BASE_USER}" -m 0644 /tmp/moonraker.conf "${TIMELAPSE_CONFIG_DIR}/moonraker.conf"
     fi
     ## Cleanup template
     if [[ -f "${TIMELAPSE_TEMPLATE}" ]]; then
@@ -66,18 +73,32 @@ check_install_pkgs ${TIMELAPSE_DEPS}
 
 ## Clone klipper repo
 pushd "/home/${BASE_USER}" &> /dev/null || exit 1
-gitclone TIMELAPSE_REPO moonraker-timelapse
+if [[ -d "/home/${BASE_USER}/moonraker-timelapse/.git" ]]; then
+    echo_green "Updating existing repo /home/${BASE_USER}/moonraker-timelapse"
+    run_as_base git -C "/home/${BASE_USER}/moonraker-timelapse" fetch --all --prune || true
+    if [[ -n "${TIMELAPSE_REPO_BRANCH:-}" ]]; then
+        run_as_base git -C "/home/${BASE_USER}/moonraker-timelapse" checkout "${TIMELAPSE_REPO_BRANCH}" || run_as_base git -C "/home/${BASE_USER}/moonraker-timelapse" checkout -B "${TIMELAPSE_REPO_BRANCH}"
+        run_as_base git -C "/home/${BASE_USER}/moonraker-timelapse" reset --hard "origin/${TIMELAPSE_REPO_BRANCH}" || true
+    else
+        run_as_base git -C "/home/${BASE_USER}/moonraker-timelapse" pull --ff-only || true
+    fi
+    if [[ -n "${TIMELAPSE_REPO_SHIP:-}" ]]; then
+        run_as_base git -C "/home/${BASE_USER}/moonraker-timelapse" remote set-url origin "${TIMELAPSE_REPO_SHIP}" || true
+    fi
+else
+    gitclone TIMELAPSE_REPO moonraker-timelapse
+fi
+chown -R "${BASE_USER}:${BASE_USER}" "/home/${BASE_USER}/moonraker-timelapse"
 
 ## Link component
 if [[ -d "${TIMELAPSE_PYTHON_VENV_DIR}" ]]; then
-    ratos extensions register moonraker "timelapse" "${TIMELAPSE_SRC_DIR}/component/timelapse.py"
+    run_as_base ratos extensions register moonraker "timelapse" "${TIMELAPSE_SRC_DIR}/component/timelapse.py"
 fi
 
 ## Link timelapse.cfg
 if [[ -d "${TIMELAPSE_CONFIG_DIR}" ]]; then
     echo "Linking macro file ..."
-    sudo -u "${BASE_USER}" \
-    ln -sf "${TIMELAPSE_SRC_DIR}/klipper_macro/timelapse.cfg" "${TIMELAPSE_CONFIG_DIR}/timelapse.cfg"
+    run_as_base ln -sf "${TIMELAPSE_SRC_DIR}/klipper_macro/timelapse.cfg" "${TIMELAPSE_CONFIG_DIR}/timelapse.cfg"
 fi
 
 ## Extend moonraker.conf

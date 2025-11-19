@@ -9,15 +9,32 @@ set -xe
 source /common.sh
 install_cleanup_trap
 
+run_as_base() {
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="$PATH" "$@"
+    else
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
+    fi
+}
+
 echo_green "Install ratos hotspot tool dependencies..."
 check_install_pkgs dnsmasq
 
 echo_green "Downloading ratos hotspot tool..."
 pushd "/home/${BASE_USER}"
-gitclone HOTSPOT_CB1 create_ap
+if [[ -d "/home/${BASE_USER}/create_ap/.git" ]]; then
+    echo_green "Updating existing repo /home/${BASE_USER}/create_ap"
+    run_as_base git -C "/home/${BASE_USER}/create_ap" fetch --all --prune || true
+    run_as_base git -C "/home/${BASE_USER}/create_ap" reset --hard @{u} || true
+else
+    gitclone HOTSPOT_CB1 create_ap
+fi
+chown -R "${BASE_USER}:${BASE_USER}" "/home/${BASE_USER}/create_ap"
 
 echo_green "Installing ratos hotspot tool..."
 pushd "/home/${BASE_USER}/create_ap"
+# install requires root permissions; run as root but keep PATH sane
 make install
 
 #edit the config
@@ -25,5 +42,5 @@ unpack /filesystem/root /
 
 chmod +x /usr/bin/start_hotspot.sh
 
-systemctl enable create_ap
+systemctl_if_exists enable create_ap
 echo_green "Installing ratos hotspot tool ... DONE!"

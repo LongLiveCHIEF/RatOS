@@ -1,17 +1,4 @@
 #!/usr/bin/env bash
-#### mainsail module
-####
-#### Based on work of:
-#### Raymond Himle and meteyou (Stefan Dej)
-####
-#### Written by Stephan Wendel aka KwadFan <me@stephanwe.de>
-#### Copyright 2021 - 2022
-#### https://github.com/mainsail-crew/MainsailOS
-####
-#### This File is distributed under GPLv3
-####
-#### Credits: Thanks to Arksine for this great API :)
-
 #### Moonraker install for Armbian builds (CB1 / Trixie)
 #### Runs fully in chroot without sudo, no EUID hacks.
 
@@ -95,6 +82,28 @@ fi
 if [[ -x "${MN_REPO_DIR}/scripts/set-policykit-rules.sh" ]]; then
   bash "${MN_REPO_DIR}/scripts/set-policykit-rules.sh" --root || true
 fi
+
+# Inline PolKit rules to ensure Moonraker has required permissions (allows reboot, package updates, service control)
+POLKIT_RULE="/etc/polkit-1/rules.d/90-moonraker.rules"
+cat > "${POLKIT_RULE}" <<RULE
+polkit.addRule(function(action, subject) {
+    var allowed = [
+        "org.freedesktop.packagekit.system-update",
+        "org.freedesktop.packagekit.package-install",
+        "org.freedesktop.packagekit.system-sources-refresh",
+        "org.freedesktop.login1.reboot-multiple-sessions",
+        "org.freedesktop.login1.reboot",
+        "org.freedesktop.login1.power-off-multiple-sessions",
+        "org.freedesktop.login1.power-off",
+        "org.freedesktop.systemd1.manage-units"
+    ];
+    if ((subject.user == "${BASE_USER}" || subject.isInGroup("${BASE_USER}")) &&
+        allowed.indexOf(action.id) >= 0) {
+        return polkit.Result.YES;
+    }
+});
+RULE
+chmod 0644 "${POLKIT_RULE}"
 
 # 5) Drop premade moonraker.conf from this module (keeps RatOS defaults)
 echo_green "Copying RatOS premade moonraker.conf ..."

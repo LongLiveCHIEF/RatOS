@@ -19,7 +19,8 @@ apt-get install -y --no-install-recommends \
         wget \
         p7zip-full \
         python3 \
-        python3-distutils \
+        python3-setuptools \
+        python3-pip-whl \
         python3-dev \
         python3-git \
         binfmt-support \
@@ -34,6 +35,75 @@ apt-get install -y --no-install-recommends \
         zip \
         xz-utils \
         lsof \
-        f2fs-tools
+        f2fs-tools \
+        patch
+
+ROOT_DIR="$(dirname "${DIR}")"
+CUSTOM_PI_OS_ROOT="$(dirname "${CUSTOM_PI_OS_PATH}")"
+
+#  Enforce polkitd fallback in base module (avoid policykit-1 attempts)
+DISABLE_SERVICES_SCRIPT="${CUSTOM_PI_OS_ROOT}/src/modules/disable-services/start_chroot_script"
+if [ -f "${DISABLE_SERVICES_SCRIPT}" ]; then
+  python3 - "${DISABLE_SERVICES_SCRIPT}" <<'PY'
+import sys, pathlib, re
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+replacement = """apt-get update --allow-releaseinfo-change --allow-releaseinfo-change
+if [ $( is_in_apt polkitd ) -eq 1 ]; then
+  sudo apt-get -y install polkitd
+fi"""
+new_text = text
+patterns = [
+    r"apt-get update --allow-releaseinfo-change --allow-releaseinfo-change\s+if\s+\[\s*\$\( is_in_apt policykit-1 \)\s*-eq\s*1\s*\];\s*then\s*sudo apt-get -y install policykit-1\s*fi",
+    r"apt-get update --allow-releaseinfo-change --allow-releaseinfo-change\s*\nif\s*\[\s*\$\( is_in_apt policykit-1 \)\s*-eq\s*1\s*\];\s*then\s*\n\s*sudo apt-get -y install policykit-1\s*\nfi",
+]
+for pat in patterns:
+    new_text = re.sub(pat, replacement, new_text, flags=re.MULTILINE)
+if "polkitd" not in new_text:
+    new_text = replacement + "\n" + new_text
+if new_text != text:
+    path.write_text(new_text)
+PY
+fi
+
+# Enforce polkitd fallback in base module (avoid policykit-1 attempts)
+BASE_SCRIPT="${CUSTOM_PI_OS_ROOT}/src/modules/base/start_chroot_script"
+if [ -f "${BASE_SCRIPT}" ]; then
+  python3 - "${BASE_SCRIPT}" <<'PY'
+import sys, pathlib, re
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+replacement = """  apt-get update --allow-releaseinfo-change
+  apt-get install -y net-tools wireless-tools dhcpcd5
+  if [ $( is_in_apt polkitd ) -eq 1 ]; then
+    apt-get -y install polkitd
+  fi"""
+pattern = r"apt-get update --allow-releaseinfo-change\s+apt-get install -y net-tools wireless-tools dhcpcd5\s+if \[\s*\$\( is_in_apt policykit-1 \)\s*-eq\s*1\s*\];\s*then\s*apt-get -y install policykit-1\s*fi"
+new_text = re.sub(pattern, replacement, text, flags=re.MULTILINE)
+if new_text != text:
+    path.write_text(new_text)
+PY
+fi
+
+# Fix CustomPiOS minimize_ext to use the image path and tolerate e2fsck exit 1 (keeps upstream pristine; shrink won’t abort)
+COMMON_SH="${CUSTOM_PI_OS_ROOT}/src/common.sh"
+if [ -f "${COMMON_SH}" ]; then
+  python3 - "${COMMON_SH}" <<'PY'
+import sys, pathlib, re
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+if "function minimize_ext" in text:
+    if 'image_path="$image"' not in text:
+        text = text.replace("  image=$1\n  partition=$2\n  buffer=$3\n",
+                            "  image=$1\n  partition=$2\n  buffer=$3\n  image_path=\"$image\"\n", 1)
+    text = re.sub(r'fdisk_output=\$\(sfdisk --json "\${?image_path}?" \)',
+                  'fdisk_output=$(sfdisk --json "${image}")', text)
+    # tolerate e2fsck nonzero: allow exit 1 (filesystem modified), fail on fatal codes
+    text = re.sub(r'e2fsck\s+-fy\s+\$LODEV',
+                  '(e2fsck -fy $LODEV || [ $? -eq 1 ])',
+                  text)
+    path.write_text(text)
+PY
+fi
 
 "${CUSTOM_PI_OS_PATH}"/build_custom_os "$@"

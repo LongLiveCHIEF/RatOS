@@ -8,17 +8,43 @@ set -xe
 source /common.sh
 install_cleanup_trap
 
+run_as_base() {
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="$PATH" "$@"
+    else
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
+    fi
+}
+
 echo_green "Installing Klipper Linear Movement Analysis by MarschallMarc#6420"
 
 pushd "/home/${BASE_USER}"
 
-gitclone LINEAR_MOVEMENT_ANALYSIS klipper_linear_movement_analysis
+if [[ -d "/home/${BASE_USER}/klipper_linear_movement_analysis/.git" ]]; then
+    echo_green "Updating existing repo /home/${BASE_USER}/klipper_linear_movement_analysis"
+    run_as_base git -C "/home/${BASE_USER}/klipper_linear_movement_analysis" fetch --all --prune || true
+    if [[ -n "${LINEAR_MOVEMENT_ANALYSIS_BRANCH:-}" ]]; then
+        run_as_base git -C "/home/${BASE_USER}/klipper_linear_movement_analysis" checkout "${LINEAR_MOVEMENT_ANALYSIS_BRANCH}" || run_as_base git -C "/home/${BASE_USER}/klipper_linear_movement_analysis" checkout -B "${LINEAR_MOVEMENT_ANALYSIS_BRANCH}"
+        run_as_base git -C "/home/${BASE_USER}/klipper_linear_movement_analysis" reset --hard "origin/${LINEAR_MOVEMENT_ANALYSIS_BRANCH}" || true
+    else
+        run_as_base git -C "/home/${BASE_USER}/klipper_linear_movement_analysis" pull --ff-only || true
+    fi
+    if [[ -n "${LINEAR_MOVEMENT_ANALYSIS_SHIP:-}" ]]; then
+        run_as_base git -C "/home/${BASE_USER}/klipper_linear_movement_analysis" remote set-url origin "${LINEAR_MOVEMENT_ANALYSIS_SHIP}" || true
+    fi
+else
+    gitclone LINEAR_MOVEMENT_ANALYSIS klipper_linear_movement_analysis
+fi
 
 EXTENSION_PATH="/home/${BASE_USER}/klipper_linear_movement_analysis"
 SCRIPT_NAME="linear_movement_vibrations.py"
+chown -R "${BASE_USER}:${BASE_USER}" "${EXTENSION_PATH}"
 
-ratos extensions register klipper "linear_movement_analysis" "${EXTENSION_PATH}/${SCRIPT_NAME}"
+run_as_base ratos extensions register klipper "linear_movement_analysis" "${EXTENSION_PATH}/${SCRIPT_NAME}"
 
 echo_green "Installing matplotlib for python 2"
 
-sudo -u "${BASE_USER}" /home/"${BASE_USER}"/klippy-env/bin/pip install -v matplotlib
+run_as_base /home/"${BASE_USER}"/klippy-env/bin/pip install -v matplotlib
+
+popd >/dev/null

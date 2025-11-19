@@ -12,83 +12,120 @@
 ####
 #### Credits: Thanks to Arksine for this great API :)
 
+#### Moonraker install for Armbian builds (CB1 / Trixie)
+#### Runs fully in chroot without sudo, no EUID hacks.
+
 # shellcheck enable=require-variable-braces
 
-# Source error handling, leave this in place
-set -Ee
+set -Eex
+export LC_ALL=C
 
-# Source CustomPIOS common.sh
+# Noninteractive apt in chroot
+if [[ "${DEBIAN_FRONTEND}" != "noninteractive" ]]; then
+    export DEBIAN_FRONTEND=noninteractive
+fi
+
+# CustomPiOS helpers
 # shellcheck disable=SC1091
 source /common.sh
 install_cleanup_trap
 
-# Module only Variables
-MN_BUILD_PACKAGE_FILE="/tmp/mn_packages.lst"
-MN_BUILD_INSTALL_SH="/home/${BASE_USER}/moonraker/scripts/install-moonraker.sh"
+run_as_base() {
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="$PATH" "$@"
+    else
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
+    fi
+}
 
-echo_green "Installing Moonraker and enable Moonraker Service ..."
+# Paths / variables
+MN_HOME="/home/${BASE_USER}"
+MN_REPO_DIR="${MN_HOME}/moonraker"
+MN_VENV="${MN_HOME}/moonraker-env"
+MN_CONF_DIR="${MN_HOME}/printer_data/config"
+MN_CONF="${MN_CONF_DIR}/moonraker.conf"
+MN_SPEEDUPS_REQ="${MN_REPO_DIR}/scripts/moonraker-speedups.txt"
+MN_REQUIREMENTS="${MN_REPO_DIR}/scripts/moonraker-requirements.txt"
+MN_SERVICE="/etc/systemd/system/moonraker.service"
 
-## Force apt update
+echo_green "Installing Moonraker and enabling service..."
+
+# 1) Ensure apt works and install build/runtime deps (no sudo in chroot)
 apt-get update
-## Make sure 'git' is installed!
-check_install_pkgs git
+# Keep this list minimal and Debian Trixie-friendly; no deprecated atlas here.
+check_install_pkgs \
+  git python3-venv python3-dev python3-pip \
+  build-essential pkg-config \
+  zlib1g-dev libjpeg-dev libopenjp2-7 \
+  libsodium-dev curl packagekit wireless-tools
 
-## Step 1: Move to Home Dir as WorkingDirectoy
-pushd "/home/${BASE_USER}" &> /dev/null || exit 1
+# 2) Clone Moonraker as the app user (idempotent)
+pushd "${MN_HOME}" >/dev/null
+if [[ ! -d "${MN_REPO_DIR}/.git" ]]; then
+    run_as_base git clone ${MOONRAKER_REPO:-https://github.com/Arksine/moonraker.git} moonraker
+else
+    run_as_base git -C "${MN_REPO_DIR}" fetch --depth=1 || true
+    run_as_base git -C "${MN_REPO_DIR}" reset --hard @{u} || true
+fi
+popd >/dev/null
 
-## Step 2: clone moonraker repo
-gitclone MOONRAKER_REPO moonraker
+# 3) Create virtualenv and install python deps as the app user
+if [[ ! -x "${MN_VENV}/bin/python" ]]; then
+    run_as_base python3 -m venv "${MN_VENV}"
+fi
 
-## Step 3: grep PKGLIST from install-moonraker.sh for dependencies
-echo_green "Generating packages file ..."
-grep "PACKAGES=" "${MN_BUILD_INSTALL_SH}" >> "${MN_BUILD_PACKAGE_FILE}"
+# Upgrade bootstrap tools first (compatible with py3.13)
+run_as_base "${MN_VENV}/bin/pip" install --upgrade pip setuptools wheel
 
-## Step 4: Rename PACKAGES to Module usable Var
-echo_green "Rename variable PACKAGES to MOONRAKER_DEPS ..."
-sed -i 's/PACKAGES/MOONRAKER_DEPS/g' "${MN_BUILD_PACKAGE_FILE}"
+# Install Moonraker requirements (fall back if file moves)
+if [[ -f "${MN_REQUIREMENTS}" ]]; then
+  run_as_base "${MN_VENV}/bin/pip" install -r "${MN_REQUIREMENTS}"
+else
+  # Conservative core deps if requirements file name changes upstream
+  run_as_base "${MN_VENV}/bin/pip" install tornado pyyaml monotonic janus python-jose jsonschema requests
+fi
 
-## Step 5: Source cn_package.lst file
-# shellcheck disable=SC1090
-# Shellcheck has to be disabled here,
-# because it is an dynamic generated file and not checkable
-. "${MN_BUILD_PACKAGE_FILE}"
+# Speedups are optional – ignore if file missing
+if [[ -f "${MN_SPEEDUPS_REQ}" ]]; then
+  run_as_base "${MN_VENV}/bin/pip" install -r "${MN_SPEEDUPS_REQ}" || true
+fi
 
-## Step 6: Install packages
-echo_green "Install moonraker dependencies ..."
-# shellcheck disable=SC2086
-# disabled because we need 'wordsplitting'
-check_install_pkgs ${MOONRAKER_DEPS}
+# 4) PolicyKit rules (run as root, no sudo)
+if [[ -x "${MN_REPO_DIR}/scripts/set-policykit-rules.sh" ]]; then
+  bash "${MN_REPO_DIR}/scripts/set-policykit-rules.sh" --root || true
+fi
 
-
-## Step 7: Move to moonraker as working directory
-pushd "/home/${BASE_USER}/moonraker" &> /dev/null || exit 1
-
-## Step 8: Run moonraker install routine
-echo_green "Launch moonraker install routine ..."
-sudo -u "${BASE_USER}" ./scripts/install-moonraker.sh -z -x
-echo_green "Install moonraker speedups ..."
-sudo -u "${BASE_USER}" /home/"${BASE_USER}"/moonraker-env/bin/pip install -r /home/"${BASE_USER}"/moonraker/scripts/moonraker-speedups.txt
-
-## Step 9: Install policykit rules
-echo_green "Install moonrakers PolicyKit Rules ..."
-sudo -u "${BASE_USER}" ./scripts/set-policykit-rules.sh --root
-
-## Step 10: Leave moonraker
-popd &> /dev/null || exit 1
-
-## Step 11: clean packages.lst file
-rm -f "${MN_BUILD_PACKAGE_FILE}"
-
-## Step 12: leave home dir
-popd &> /dev/null || exit 1
-
-## Step 13: Install RatOS premade moonraker.conf
+# 5) Drop premade moonraker.conf from this module (keeps RatOS defaults)
 echo_green "Copying RatOS premade moonraker.conf ..."
 unpack /filesystem/home/"${BASE_USER}" /home/"${BASE_USER}" "${BASE_USER}"
+mkdir -p "${MN_CONF_DIR}"
+chown -R "${BASE_USER}:${BASE_USER}" "${MN_HOME}"
 
-## Step 14:
-echo_green "Enable moonraker.service ..."
+# 6) Create a systemd unit – avoid calling installer (which uses sudo)
+cat > "${MN_SERVICE}" <<'UNIT'
+[Unit]
+Description=Moonraker API Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__BASE_USER__
+Group=__BASE_USER__
+WorkingDirectory=/home/__BASE_USER__/moonraker
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/__BASE_USER__/moonraker-env/bin/python -m moonraker --config /home/__BASE_USER__/printer_data/config/moonraker.conf
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+sed -i "s|__BASE_USER__|${BASE_USER}|g" "${MN_SERVICE}"
+
+# 7) Enable service
 systemctl_if_exists enable moonraker.service
 
-## Finish
-echo_green "Installing Moonraker and enable Moonraker Service ... DONE!"
+echo_green "Installing Moonraker and enabling service ... DONE!"

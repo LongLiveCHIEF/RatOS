@@ -24,7 +24,7 @@ install_cleanup_trap
 ## unpack postrename
 unpack filesystem/root / root
 ## set executable
-sudo chmod 0755 /postrename
+chmod 0755 /postrename
 
 ## run postrename via rc.local
 sed -i 's@exit 0@@' /etc/rc.local

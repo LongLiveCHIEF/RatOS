@@ -10,6 +10,12 @@ set -Eex
 source /common.sh
 install_cleanup_trap
 
+check_install_pkgs python3-venv python3-pip || true
+
+KS_HOME="/home/${BASE_USER}"
+KS_VENV="${KS_HOME}/.KlipperScreen-env"
+KS_REQUIREMENTS="${KS_HOME}/KlipperScreen/scripts/KlipperScreen-requirements.txt"
+
 run_as_base() {
     local base_home="/home/${BASE_USER}"
     if command -v runuser >/dev/null 2>&1; then

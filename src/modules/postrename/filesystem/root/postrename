@@ -186,11 +186,16 @@ main() {
 local cmdltxt
 cmdltxt="/boot/cmdline.txt"
 
-## Make sure init_resize.sh and firstrun.sh are finished
-if [[ "$(grep -c "init" "${cmdltxt}")" != "0" ]] && \
-[[ "$(grep -c "systemd.run.*" "${cmdltxt}")" != "0" ]]; then
+## Make sure init_resize.sh and firstrun.sh are finished (tolerate missing cmdline.txt)
+cmdline_content=""
+if [[ -r "${cmdltxt}" ]]; then
+    cmdline_content="$(cat "${cmdltxt}")"
+elif [[ -r "/proc/cmdline" ]]; then
+    cmdline_content="$(cat /proc/cmdline)"
+fi
+if [[ "${cmdline_content}" == *"systemd.run"* ]]; then
     echo -e "[${RED}ERROR${NOC}] \
-    ${WHITE}Sdcard resize and firtrun are not finished yet ... [ABORT]${NOC}"
+    ${WHITE}Sdcard resize and firstrun are not finished yet ... [ABORT]${NOC}"
     ## Make sure not failing rc.local
     return 0
 fi

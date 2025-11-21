@@ -42,6 +42,16 @@ apt-get update
 # Use Debian-provided Node.js/npm (no external repo required)
 check_install_pkgs nodejs npm
 
+# Create a placeholder nodesource list so ratos-update.sh sed step never fails
+# We keep it commented so apt ignores it unless the updater chooses to enable it.
+mkdir -p /etc/apt/sources.list.d
+if [[ ! -f /etc/apt/sources.list.d/nodesource.list ]]; then
+cat >/etc/apt/sources.list.d/nodesource.list <<'EOF'
+# Placeholder for RatOS updater; Debian nodejs/npm are installed by default.
+# deb https://deb.nodesource.com/node_18.x nodistro main
+EOF
+fi
+
 # Prefer corepack (ships with node 18) but fall back to npm install -g
 if command -v corepack >/dev/null 2>&1; then
     corepack enable || true

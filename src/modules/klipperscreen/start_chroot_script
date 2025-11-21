@@ -64,6 +64,17 @@ EOF
 popd >/dev/null
 popd >/dev/null
 
+
+# Ensure update_manager virtualenv exists where Moonraker expects it
+if [[ ! -x "${KS_VENV}/bin/python" ]]; then
+    run_as_base python3 -m venv "${KS_VENV}"
+    run_as_base "${KS_VENV}/bin/pip" install --upgrade pip setuptools wheel
+    if [[ -f "${KS_REQUIREMENTS}" ]]; then
+        run_as_base "${KS_VENV}/bin/pip" install -r "${KS_REQUIREMENTS}" || true
+    fi
+fi
+chown -R "${BASE_USER}:${BASE_USER}" "${KS_VENV}" || true
+
 # Mute output from klipperscreen service
 sed -i 's/\[Service\]/\[Service\]\nStandardOutput=null\nStandardError=null/g' /etc/systemd/system/KlipperScreen.service || true
 

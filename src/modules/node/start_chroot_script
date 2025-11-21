@@ -38,14 +38,9 @@ EOF
 }
 
 NODE_MAJOR="${NODE_MAJOR:-20}"
-tmpdir="$(mktemp -d /tmp/node-setup-XXXXXX)"
-trap 'rm -rf "${tmpdir}"' EXIT
-
-curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o "${tmpdir}/setup_${NODE_MAJOR}.sh"
-bash "${tmpdir}/setup_${NODE_MAJOR}.sh"
-
 apt-get update
-check_install_pkgs nodejs
+# Use Debian-provided Node.js/npm (no external repo required)
+check_install_pkgs nodejs npm
 
 # Prefer corepack (ships with node 18) but fall back to npm install -g
 if command -v corepack >/dev/null 2>&1; then

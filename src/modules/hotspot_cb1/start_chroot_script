@@ -20,6 +20,10 @@ run_as_base() {
 
 echo_green "Install ratos hotspot tool dependencies..."
 check_install_pkgs dnsmasq
+# The package enables dnsmasq.service by default; disable it to avoid boot failures on CB1
+systemctl_if_exists stop dnsmasq || true
+systemctl_if_exists disable dnsmasq || true
+systemctl_if_exists mask dnsmasq || true
 
 echo_green "Downloading ratos hotspot tool..."
 pushd "/home/${BASE_USER}"

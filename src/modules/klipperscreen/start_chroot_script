@@ -47,6 +47,7 @@ if [[ -d "/home/${BASE_USER}/KlipperScreen/.git" ]]; then
 else
     gitclone KLIPPERSCREEN KlipperScreen
 fi
+chown -R "${BASE_USER}:${BASE_USER}" "/home/${BASE_USER}/KlipperScreen" || true
 pushd "/home/${BASE_USER}/KlipperScreen"
 # Patch installer in-place: drop sudo (nosuid in chroot) and remove root guard
 sed -i 's/sudo //g' scripts/KlipperScreen-install.sh
@@ -56,14 +57,14 @@ sed -i '/if \[ "\$EUID" == 0 \]/{N;N;N;d;}' scripts/KlipperScreen-install.sh
 # Run installer as root with defaults (standalone yes, backend Xserver) 
 # Use BACKEND=W for Wayland
 # Use BACKEND=X for X11
-NETWORK="skipnetworkmanagerinstall" BACKEND="w" SERVICE="Y" DEBIAN_FRONTEND=noninteractive \
+HOME="${KS_HOME}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" \
+  NETWORK="skipnetworkmanagerinstall" BACKEND="w" SERVICE="Y" DEBIAN_FRONTEND=noninteractive \
   bash ./scripts/KlipperScreen-install.sh <<'EOF'
 
 
 EOF
 popd >/dev/null
 popd >/dev/null
-
 
 # Ensure update_manager virtualenv exists where Moonraker expects it
 if [[ ! -x "${KS_VENV}/bin/python" ]]; then

@@ -4,8 +4,6 @@
 
 # Arch
 BASE_ARCH="arm64"
-BASE_IMAGE_ENLARGEROOT=10500
-BASE_IMAGE_RESIZEROOT=600
 
 # Create default user
 BASE_ADD_USER="yes"

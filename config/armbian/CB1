@@ -10,17 +10,21 @@ BASE_ADD_USER="yes"
 BASE_USER="pi"
 BASE_USER_PASSWORD="raspberry"
 
+# Download Base Url
+DOWNLOAD_BASE_URL="https://dl.armbian.com/bigtreetech-cb1"
+
 # Image source (DOWNLOAD_BASE_URL should be defined by the workflow/env)
-DOWNLOAD_URL_CHECKSUM="${DOWNLOAD_BASE_URL}/armbian-bigtreetech_cb1_trixie.img.sha256"
-DOWNLOAD_URL_IMAGE="${DOWNLOAD_BASE_URL}/armbian-bigtreetech_cb1_trixie.img.xz"
+DOWNLOAD_URL_IMAGE="${DOWNLOAD_BASE_URL}/Trixie_current_minimal"
+DOWNLOAD_URL_CHECKSUM="${DOWNLOAD_BASE_URL}/Trixie_current_minimal.sha"
+
 
 # Compress not needed due compression done in workflow
 BASE_RELEASE_COMPRESS=no
 
 # Export variables
 export BASE_ARCH
-export BASE_IMAGE_ENLARGEROOT
-export BASE_IMAGE_RESIZEROOT
+#export BASE_IMAGE_ENLARGEROOT
+#export BASE_IMAGE_RESIZEROOT
 export BASE_ADD_USER
 export BASE_USER
 export BASE_USER_PASSWORD

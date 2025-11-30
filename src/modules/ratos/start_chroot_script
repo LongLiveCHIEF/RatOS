@@ -1,60 +1,38 @@
 #!/usr/bin/env bash
 # Installs RatOS
-# GPL v3
+# GPL V3
+########
 
-# Strict mode + sane locale
-set -Eex
-export LC_ALL=C
-export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-[[ "${DEBIAN_FRONTEND:-}" == "noninteractive" ]] || export DEBIAN_FRONTEND=noninteractive
+# Source error handling, leave this in place
+set -Ee
 
-# CustomPiOS helpers
-# shellcheck disable=SC1091
+# Set DEBIAN_FRONTEND to noninteractive
+if [[ "${DEBIAN_FRONTEND}" != "noninteractive" ]]; then
+    export DEBIAN_FRONTEND=noninteractive
+fi
+export NPM_CONFIG_CACHE="/tmp/.npm-cache"
+export PNPM_STORE_PATH="/tmp/.pnpm-store"
+
+# shellcheck source=/dev/null
 source /common.sh
 install_cleanup_trap
 
 echo_green "Installing RatOS"
 
-# Helper: run a command as BASE_USER with sane HOME/USER env
 run_as_base() {
-  local base_home="/home/${BASE_USER}"
-  if command -v runuser >/dev/null 2>&1; then
-    env -u SUDO_USER -u SUDO_HOME -u SUDO_UID -u SUDO_GID \
-      runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="/usr/local/bin:/usr/bin:/bin:$PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 "$@"
-  else
-    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
-  fi
-}
-
-refresh_repo_dir() {
-  local dir="$1"
-  local branch="$2"
-  local remote="$3"
-  if [[ -d "${dir}/.git" ]]; then
-    echo_green "Updating existing repo ${dir}"
-    run_as_base git -C "${dir}" fetch --all --prune || true
-    if [[ -n "${branch}" ]]; then
-      run_as_base git -C "${dir}" checkout "${branch}" || run_as_base git -C "${dir}" checkout -B "${branch}"
-      run_as_base git -C "${dir}" reset --hard "origin/${branch}" || true
+    local base_home="/home/${BASE_USER}"
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "${BASE_USER}" -- env HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" PATH="/usr/local/bin:/usr/bin:/bin:$PATH" "$@"
     else
-      run_as_base git -C "${dir}" pull --ff-only || true
+        HOME="${base_home}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" sudo -u "${BASE_USER}" "$@"
     fi
-    if [[ -n "${remote}" ]]; then
-      run_as_base git -C "${dir}" remote set-url origin "${remote}" || true
-    fi
-    return 0
-  fi
-  if [[ -d "${dir}" ]]; then
-    rm -rf "${dir}"
-  fi
-  return 1
 }
 
 ensure_ratos_env() {
-  local user_home="/home/${BASE_USER}"
-  local env_file="${user_home}/.ratos.env.system"
-  local system_env="/usr/local/etc/.ratos.env"
-  cat > "${env_file}" <<EOF
+    local user_home="/home/${BASE_USER}"
+    local env_file="${user_home}/.ratos.env.system"
+    local system_env="/usr/local/etc/.ratos.env"
+    cat > "${env_file}" <<EOF
 RATOS_USERNAME=${BASE_USER}
 RATOS_USERGROUP=${BASE_USER}
 RATOS_PRINTER_DATA_DIR=${user_home}/printer_data
@@ -63,11 +41,11 @@ KLIPPER_DIR=${user_home}/klipper
 KLIPPER_ENV=${user_home}/klippy-env
 BEACON_DIR=${user_home}/beacon
 EOF
-  chown "${BASE_USER}:${BASE_USER}" "${env_file}"
-  chmod 0644 "${env_file}"
+    chown "${BASE_USER}:${BASE_USER}" "${env_file}"
+    chmod 0644 "${env_file}"
 
-  mkdir -p /usr/local/etc
-  cat > "${system_env}" <<EOF
+    mkdir -p /usr/local/etc
+    cat > "${system_env}" <<EOF
 RATOS_USERNAME=${BASE_USER}
 RATOS_USERGROUP=${BASE_USER}
 RATOS_PRINTER_DATA_DIR=${user_home}/printer_data
@@ -76,8 +54,8 @@ KLIPPER_DIR=${user_home}/klipper
 KLIPPER_ENV=${user_home}/klippy-env
 BEACON_DIR=${user_home}/beacon
 EOF
-  chown root:root "${system_env}"
-  chmod 0644 "${system_env}"
+    chown root:root "${system_env}"
+    chmod 0644 "${system_env}"
 }
 
 # --- BEGIN: sudo shim (handles nosuid mounts during chroot build) ---
@@ -100,238 +78,184 @@ chmod 0755 /usr/local/bin/sudo
 case ":$PATH:" in *:/usr/local/bin:*) : ;; *) export PATH="/usr/local/bin:$PATH" ;; esac
 # --- END: sudo shim ---
 
-# Ensure config dir exists and owned by BASE_USER
-install -d -o "${BASE_USER}" -g "${BASE_USER}" "/home/${BASE_USER}/printer_data/config"
+pushd "/home/${BASE_USER}/printer_data/config"
 
-pushd "/home/${BASE_USER}/printer_data/config" >/dev/null
-refresh_repo_dir "RatOS" "${RATOS_CONFIG_BRANCH}" "${RATOS_CONFIG_SHIP}" || gitclone RATOS_CONFIG RatOS
-refresh_repo_dir ".theme" "${RATOS_THEME_BRANCH}" "${RATOS_THEME_SHIP}" || gitclone RATOS_THEME .theme
-popd >/dev/null
+gitclone RATOS_CONFIG RatOS
+gitclone RATOS_THEME .theme
+pushd "/home/${BASE_USER}"
+gitclone RATOS_CONFIGURATOR ratos-configurator
+popd
+popd
 
-pushd "/home/${BASE_USER}" >/dev/null
-refresh_repo_dir "ratos-configurator" "${RATOS_CONFIGURATOR_BRANCH}" "${RATOS_CONFIGURATOR_SHIP}" || gitclone RATOS_CONFIGURATOR ratos-configurator
-popd >/dev/null
+# Ensure configurator initial-printer template exists (branch stores it under configuration/templates)
+TEMPLATE_SRC="/home/${BASE_USER}/ratos-configurator/configuration/templates/initial-printer.template.cfg"
+TEMPLATE_DST="/home/${BASE_USER}/ratos-configurator/configuration/scripts/templates/initial-printer.template.cfg"
+if [[ -f "${TEMPLATE_SRC}" && ! -f "${TEMPLATE_DST}" ]]; then
+  mkdir -p "$(dirname "${TEMPLATE_DST}")"
+  cp -f "${TEMPLATE_SRC}" "${TEMPLATE_DST}"
+  chown "${BASE_USER}:${BASE_USER}" "${TEMPLATE_DST}" || true
+fi
 
-# Drop in any prepacked files from module
 unpack /filesystem/root /
 
-# Default git behavior for merges (use BASE_USER)
-run_as_base git config --global pull.ff only
+# Set default git merge strategy
+sudo -u pi git config --global pull.ff only
 
 # Create release file
+if [ -f "/etc/ratos_version" ]; then
+    sudo rm -f /etc/ratos_version
+fi
+function get_parent {
+    cat /etc/os-release | grep VERSION_CODENAME | cut -d '=' -f2
+}
+
 rm -f "/etc/${DIST_NAME,,}-release" || true
 get_parent() { grep VERSION_CODENAME /etc/os-release | cut -d= -f2; }
 echo "${DIST_NAME} v${DIST_VERSION} ($(get_parent))" > "/etc/${DIST_NAME,,}-release"
 
-# Symlink hack for moonraker distro detection (keep armbian/orangepi originals intact)
-if [[ -f /etc/armbian-release || -f /etc/orangepi-release ]]; then
-  ln -sf "/etc/${DIST_NAME,,}-release" /etc/aaaa-release
+## Step 2: Fake release file
+### NOTE: Turns out that the 'distro' python package,
+###       which is used by moonraker, uses the first file after sorting.
+###       Therefore we need a hacky solution, because armbian relies, on upgrades
+###       on the original armbian-release file.
+###       To get around that, we simple symlink mainsailos-release to
+###       aaaa-release, which is directly read by moonraker.
+### Substep 1: Do for armbian releases
+if [[ -f "/etc/armbian-release" ]]; then
+    echo_green "Apply release file workaround (armbian based image) ..."
+    ln -sf /etc/"${DIST_NAME,,}"-release /etc/aaaa-release
 fi
+### END Substep 1
+### Substep 2: Apply same for OrangePI based Images
+if [[ -f "/etc/orangepi-release" ]]; then
+    echo_green "Apply release file workaround (orangepi based image) ..."
+    ln -sf /etc/"${DIST_NAME,,}"-release /etc/aaaa-release
+fi
+## END Step 2
 
-# System deps
+## Step 3: Install system dependencies
 apt-get update --allow-releaseinfo-change
-# RATOS_DEPS is provided by module env; make sure curl is present for the readiness probe
-check_install_pkgs ${RATOS_DEPS} curl
+# shellcheck disable=SC2086
+check_install_pkgs ${RATOS_DEPS}
+## END Step 3
 
-# Install RatOS Configurator (runs as BASE_USER)
+# Ensure RatOS env files exist before running configurator setup (avoids sudo password prompt)
 ensure_ratos_env
+
+# Allow configurator setup to use sudo non-interactively (NOPASSWD for BASE_USER)
+SUDOERS_FILE="/etc/sudoers.d/010-ratos-nopasswd"
+cat > "${SUDOERS_FILE}" <<EOF
+${BASE_USER} ALL=(ALL) NOPASSWD:ALL
+EOF
+chmod 0440 "${SUDOERS_FILE}"
+
+# Patch configurator scripts in-place to allow ALLOW_ROOT and avoid fatal root exits
 CONFIG_SETUP="/home/${BASE_USER}/ratos-configurator/app/scripts/setup.sh"
-if ! grep -q 'ALLOW_ROOT' "${CONFIG_SETUP}"; then
-  python3 - "$CONFIG_SETUP" <<'PY'
+if [[ -f "${CONFIG_SETUP}" ]]; then
+python3 - "${CONFIG_SETUP}" <<'PY'
 import sys, pathlib
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
-needle = 'if [ "$EUID" -eq 0 ]; then'
-replacement = 'if [ "$EUID" -eq 0 ] && [ -z "${ALLOW_ROOT:-}" ]; then'
+needle = '''verify_ready()
+{
+    if [ "$EUID" -eq 0 ]; then
+        echo "This script must not run as root"
+        exit 1
+    fi
+}
+'''
+replacement = '''verify_ready()
+{
+    if [ "$EUID" -eq 0 ]; then
+        if [ -z "${ALLOW_ROOT:-}" ]; then
+            echo "This script must not run as root"
+            exit 1
+        fi
+    fi
+}
+'''
 if needle in text:
     path.write_text(text.replace(needle, replacement, 1))
 PY
 fi
-# Make udev rule linking idempotent so rebuilds (keep-mount/option 2-3) don't fail
-python3 - "$CONFIG_SETUP" <<'PY'
-import pathlib, sys
+
+CONFIG_ENV="/home/${BASE_USER}/ratos-configurator/configuration/scripts/environment.sh"
+if [[ -f "${CONFIG_ENV}" ]]; then
+python3 - "${CONFIG_ENV}" <<'PY'
+import sys, pathlib
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
-lines = text.splitlines()
-updated = False
-for i, line in enumerate(lines):
-    if "/etc/udev/rules.d" in line and "ln -s" in line:
-        # Force -f and append || true for any udev rule link line
-        newline = line.replace("ln -s", "ln -sf")
-        if "||" not in newline:
-            newline = f"{newline} || true"
-        if newline != line:
-            lines[i] = newline
-            updated = True
-if updated:
-    path.write_text("\n".join(lines) + ("\n" if lines else ""))
-PY
-env -u SUDO_USER -u SUDO_HOME -u SUDO_UID -u SUDO_GID \
-  COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
-  ALLOW_ROOT=1 HOME="/home/${BASE_USER}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" \
-  bash "${CONFIG_SETUP}"
-
-CONFIGURATOR_APP_DIR="/home/${BASE_USER}/ratos-configurator/app"
-COPY_CFG="${CONFIGURATOR_APP_DIR}/copy-files-from-to.json"
-if [[ ! -f "${COPY_CFG}" ]]; then
-  cat > "${COPY_CFG}" <<'JSON'
-[
-  {
-    "from": "resources/scichart-data",
-    "to": "public/scichart-data"
-  }
-]
-JSON
+needle = '''if [ "$REAL_USER" = "root" ]; then
+    echo "Fatal Error: Unable to determine non-root user, please run as a normal user or use sudo, exiting..." >&2
+    exit 1
 fi
-
-instrumentation_targets=("instrumentation.ts" "instrumentation.tsx" "src/instrumentation.ts" "src/instrumentation.tsx" "src/app/instrumentation.ts" "src/app/instrumentation.tsx" "app/src/app/instrumentation.ts" "app/src/app/instrumentation.tsx")
-instrumentation_patched=false
-for candidate in "${instrumentation_targets[@]}"; do
-  candidate_path="${CONFIGURATOR_APP_DIR}/${candidate}"
-  if [[ -f "${candidate_path}" ]]; then
-    INSTRUMENTATION_FILE="${candidate_path}"
-    instrumentation_patched=true
-    break
-  fi
-done
-
-if [[ "${instrumentation_patched}" == true ]]; then
-  if ! grep -q "export const runtime" "${INSTRUMENTATION_FILE}"; then
-    python3 - "${INSTRUMENTATION_FILE}" <<'PY'
-import pathlib, sys
-path = pathlib.Path(sys.argv[1])
-text = path.read_text().rstrip()
-if "export const runtime" not in text:
-    text = f"{text}\n\nexport const runtime = 'nodejs';\n"
-path.write_text(text)
-PY
-  fi
-else
-  echo_yellow "No instrumentation file found to patch runtime hint (checked: ${instrumentation_targets[*]})"
+'''
+replacement = '''if [ "$REAL_USER" = "root" ]; then
+    if [ -z "${ALLOW_ROOT:-}" ]; then
+        echo "Fatal Error: Unable to determine non-root user, please run as a normal user or use sudo, exiting..." >&2
+        exit 1
+    fi
+    REAL_USER="pi"
+    REAL_HOME="/home/pi"
 fi
-
-BUILD_INSTRUMENTATION="${CONFIGURATOR_APP_DIR}/build/server/instrumentation.js"
-if [[ -f "${BUILD_INSTRUMENTATION}" ]]; then
-  python3 - "${BUILD_INSTRUMENTATION}" <<'PY'
-import pathlib, re, sys
-path = pathlib.Path(sys.argv[1])
-text = path.read_text()
-updated = False
-patterns = [
-    (r"exports\.runtime\s*=\s*['\"](edge|nodejs)['\"]", "exports.runtime = 'nodejs'"),
-    (r"module\.exports\.runtime\s*=\s*['\"](edge|nodejs)['\"]", "module.exports.runtime = 'nodejs'")
-]
-for needle, replacement in patterns:
-    if re.search(needle, text):
-        text = re.sub(needle, replacement, text, count=1)
-        updated = True
-if not re.search(r"exports\.runtime\s*=", text):
-    text += "\nexports.runtime = 'nodejs';"
-    updated = True
-if not re.search(r"module\.exports\.runtime\s*=", text):
-    text += "\nmodule.exports.runtime = 'nodejs';"
-    updated = True
-if updated:
-    path.write_text(text)
+'''
+if needle in text:
+    path.write_text(text.replace(needle, replacement, 1))
 PY
 fi
 
-INSTALL_SCRIPT="/home/${BASE_USER}/printer_data/config/RatOS/scripts/ratos-install.sh"
-if [[ -f "${INSTALL_SCRIPT}" ]] && ! grep -q 'ALLOW_ROOT' "${INSTALL_SCRIPT}"; then
-  python3 - "${INSTALL_SCRIPT}" <<'PY'
-import sys, pathlib, re
+CONFIG_COMMON="/home/${BASE_USER}/ratos-configurator/app/scripts/common.sh"
+if [[ -f "${CONFIG_COMMON}" ]]; then
+python3 - "${CONFIG_COMMON}" <<'PY'
+import sys, pathlib
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
-patterns = [
-    (r'\bif\s+\[\s+"\$\(id -u\)"\s+-eq\s+0\s+\];\s*then', 'if [ "$(id -u)" -eq 0 ] && [ -z "${ALLOW_ROOT:-}" ]; then'),
-    (r'\bif\s+\[\s+"\$EUID"\s+-eq\s+0\s+\];\s*then', 'if [ "$EUID" -eq 0 ] && [ -z "${ALLOW_ROOT:-}" ]; then')
-]
-changed = False
-for needle, replacement in patterns:
-    if re.search(needle, text):
-        text = re.sub(needle, replacement, text, count=1)
-        changed = True
-        break
-if not changed and 'This script must not run as root' in text:
-    text = text.replace(
-        '  echo "This script must not run as root"\n  exit 1',
-        '  echo "This script must not run as root"\n  if [ -z "${ALLOW_ROOT:-}" ]; then\n    exit 1\n  fi',
-        1
-    )
+needle = '$sudo rm "$target"\n'
+replacement = '$sudo rm -f "$target" || true\n'
+if needle in text:
+    text = text.replace(needle, replacement, 1)
 path.write_text(text)
 PY
 fi
 
-# Make udev rule linking in ratos-install idempotent (option 2/3 rebuilds)
-if [[ -f "${INSTALL_SCRIPT}" ]]; then
-  python3 - "${INSTALL_SCRIPT}" <<'PY'
-import pathlib, re, sys
-path = pathlib.Path(sys.argv[1])
-text = path.read_text()
-pattern = re.compile(r'ln\s+-s\s+.*?/etc/udev/rules\.d/?')
-def repl(match):
-    line = match.group(0)
-    line = line.replace("ln -s", "ln -sf", 1)
-    if "||" not in line:
-        line = f"{line} || true"
-    return line
-updated = pattern.sub(lambda m: repl(m), text)
-if updated != text:
-    path.write_text(updated)
-PY
-fi
+# Install RatOS Configurator (new path under app/scripts)
+ALLOW_ROOT=1 sudo -u "${BASE_USER}" bash /home/"${BASE_USER}"/ratos-configurator/app/scripts/setup.sh
 
-# Start configurator so extensions can talk to API
+
+# Start the configurator so extensions can access the API
 echo "Starting RatOS Configurator"
-pushd "/home/${BASE_USER}/ratos-configurator/app"
-
-# background it; capture PID so we can stop it after probing
-run_as_base bash -lc "cd '${CONFIGURATOR_APP_DIR}' && npm run start > /home/${BASE_USER}/.ratos-configurator.start.log 2>&1 & echo \$! > /tmp/ratos_configurator.pid"
-
-# Wait until it serves (expects 404 on root once up)
-timeout 300 bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' http://localhost:3000)" != "404" ]]; do sleep 5; done' || false
-
-# Stop configurator to free qemu helper before later modules
-run_as_base bash -lc 'if [ -f /tmp/ratos_configurator.pid ]; then kill $(cat /tmp/ratos_configurator.pid) 2>/dev/null || true; rm -f /tmp/ratos_configurator.pid; fi'
+CONFIGURATOR_APP_DIR="/home/${BASE_USER}/ratos-configurator/app"
+pushd "${CONFIGURATOR_APP_DIR}"
+sudo -u "${BASE_USER}" npm run start &
+# Wait for configurator to start
+# shellcheck disable=SC2016
+timeout 300 bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost:3000)" != "404" ]]; do sleep 5; done' || false
 popd
 
 echo "RATOS CLI SANITY CHECKS"
-echo "$PATH"
+echo $PATH
 ls -la /usr/local/bin
 
-# Install RatOS configuration (run as root with BASE_USER env so sudo works under nosuid)
-env -u SUDO_USER -u SUDO_HOME -u SUDO_UID -u SUDO_GID \
-  COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
-  ALLOW_ROOT=1 HOME="/home/${BASE_USER}" USER="${BASE_USER}" LOGNAME="${BASE_USER}" \
-  bash "${INSTALL_SCRIPT}"
-chown -R "${BASE_USER}:${BASE_USER}" "/home/${BASE_USER}"
+# Install RatOS Configuration
+sudo -u "${BASE_USER}" /home/"${BASE_USER}"/printer_data/config/RatOS/scripts/ratos-install.sh
 
-
-# Clean up sudo shim so the final image uses the real sudo
-rm -f /usr/local/bin/sudo || true
+# Cleanup caches and package artifacts to keep image size down
+apt-get clean || true
+rm -rf \
+  /var/lib/apt/lists/* \
+  /var/cache/apt/archives/*.deb \
+  /var/cache/apt/*.bin \
+  /var/log/*/*-???????? \
+  /var/log/*.gz \
+  /tmp/.npm-cache \
+  /tmp/.pnpm-store \
+  /home/"${BASE_USER}"/.npm \
+  /home/"${BASE_USER}"/.cache/pnpm \
+  /home/"${BASE_USER}"/ratos-configurator/node_modules/.cache \
+  /home/"${BASE_USER}"/ratos-configurator/app/node_modules/.cache \
+  /home/"${BASE_USER}"/.cache \
+  /home/"${BASE_USER}"/.cache/pip \
+  /root/.cache/pip || true
 
 # Create variant file
 echo "${BASE_DISTRO}" > /etc/"${BASE_DISTRO}"-variant
-
-# MOTD: RatOS logo
-cat << EOF > /etc/motd
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⣀[0m[38;5;0m⡀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠘[0m[38;5;15m⣿[0m[38;5;145m⣷[0m[38;5;0m⣦[0m[38;5;0m⣄[0m[38;5;0m⣀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;102m⠹[0m[38;5;15m⣷[0m[38;5;0m⡀[0m[38;5;188m⢉[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;70m⣦[0m[38;5;0m⣄[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;188m⢹[0m[38;5;15m⣷[0m[38;5;145m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;70m⣇[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;15m⢻[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⢠[0m[38;5;0m⡀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠈[0m[38;5;15m⢿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;22m⢸[0m[38;5;82m⣿[0m[38;5;70m⣦[0m[38;5;0m⡀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠘[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⠋[0m[38;5;15m⢿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;22m⢸[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⡇[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;59m⠸[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;0m⡀[0m[38;5;0m⠈[0m[38;5;15m⢿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;22m⢸[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⡇[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;76m⢹[0m[38;5;22m⣦[0m[38;5;0m⡀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;145m⠹[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣷[0m[38;5;0m⣄[0m[38;5;0m⢸[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;22m⢸[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⡇[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;70m⢸[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;28m⣆[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;15m⢻[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;102m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;22m⢸[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⡇[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;70m⢸[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;15m⢿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;22m⢸[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⡇[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;70m⢸[0m[38;5;82m⣿[0m[38;5;82m⡿[0m[38;5;82m⠃[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠈[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;22m⢸[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⡇[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;70m⠼[0m[38;5;82m⠋[0m[38;5;22m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠒[0m[38;5;0m⠒[0m[38;5;0m⠒[0m[38;5;0m⠚[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;22m⢸[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⡇[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⢀[0m[38;5;0m⠤[0m[38;5;0m⠒[0m[38;5;59m⠊[0m[38;5;188m⢹[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;22m⢸[0m[38;5;82m⣿[0m[38;5;82m⠟[0m[38;5;82m⠁[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⢀[0m[38;5;0m⠔[0m[38;5;188m⠁[0m[38;5;188m⠹[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;22m⠘[0m[38;5;82m⠁[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;145m⠁[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;145m⠙[0m[38;5;15m⢿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;15m⣿[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⣿[0m[38;5;82m⡿[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠲[0m[38;5;0m⣶[0m[38;5;0m⣶[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;82m⣿[0m[38;5;82m⠟[0m[38;5;76m⠁[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;102m⠙[0m[38;5;15m⠛[0m[38;5;59m⠀[0m[38;5;0m⠀[0m[38;5;76m⠁[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m[38;5;0m⠀[0m
-
-EOF

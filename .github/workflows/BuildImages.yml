@@ -4,7 +4,6 @@ on:
     branches:
       - "v2.x"
       - "v2.1.x"
-      - "CB1-Armbian-v25.8.1-(Trixie)"
     paths:
       - "src/modules/**"
       - "src/build_dist"

@@ -14,23 +14,17 @@ export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 source /common.sh
 install_cleanup_trap
 
-# Step 1: Copy udev rule for SPI
-echo_green "Copying 90-gpio-spi.rules..."
-unpack /filesystem/root /
+##
+# Removed SPI-specific setup, all supported env variables can be set with armbian-config
+##
 
-# Step 2: Ensure 'spi' group exists and add user
-if ! getent group spi >/dev/null; then
-  groupadd -f --system spi
-fi
-usermod -a -G spi "${BASE_USER}"
-
-# Step 3: Disable Bluetooth-related services if present
+# Step 1: Disable Bluetooth-related services if present
 echo_green "Disabling Bluetooth related services..."
 systemctl_if_exists disable hciuart.service
 systemctl_if_exists disable bluetooth.service
 systemctl_if_exists disable bluealsa.service
 
-# Step 4: Increase swapfile size (fix sed quoting so vars expand)
+# Step 2: Increase swapfile size (fix sed quoting so vars expand)
 if [[ -f "${PICONFIG_SWAP_CONF_FILE}" ]]; then
   echo_green "Increasing swap file size to ${PICONFIG_SWAP_SIZE} Mb. Limit to ${PICONFIG_SWAP_MAX} Mb"
   sed -i "s/^CONF_SWAPSIZE.*/CONF_SWAPSIZE=\"${PICONFIG_SWAP_SIZE}\"/" "${PICONFIG_SWAP_CONF_FILE}"
@@ -42,14 +36,22 @@ if [[ -f "${PICONFIG_SWAP_CONF_FILE}" ]]; then
   fi
 fi
 
-# Step 5: Install Avahi for ratos.local (correct package names)
+# Step 3: Install Avahi for ratos.local (correct package names)
 # 'avahi-daemon' provides the service; 'avahi-utils' is handy for debugging
 check_install_pkgs avahi-daemon avahi-utils || true
 systemctl_if_exists enable avahi-daemon.service || true
 
-# Step 6: Add ${BASE_USER} to common groups, but only if they exist on this root
+# Step 4: Add ${BASE_USER} to common groups, but only if they exist on this root
 for g in disk audio plugdev games users systemd-journal input netdev ssh; do
   if getent group "$g" >/dev/null; then
     usermod -a -G "$g" "${BASE_USER}"
   fi
+done
+
+# Step 5: Ensure systemd-networkd/wait-online stays disabled (NetworkManager handles CB1 networking)
+echo_green "Disabling systemd-networkd wait-online stack in favor of NetworkManager..."
+for unit in systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service NetworkManager-wait-online.service; do
+  systemctl_if_exists stop "${unit}" || true
+  systemctl_if_exists disable "${unit}" || true
+  systemctl_if_exists mask "${unit}" || true
 done

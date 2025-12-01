@@ -13,7 +13,6 @@ apt-get install -y --no-install-recommends \
         ca-certificates \
         sudo \
         build-essential \
-        sudo \
         curl \
         git \
         wget \
@@ -27,7 +26,6 @@ apt-get install -y --no-install-recommends \
         qemu-system \
         qemu-user \
         qemu-user-static \
-        sudo \
         file \
         fdisk \
         btrfs-progs \
@@ -51,6 +49,9 @@ text = path.read_text()
 replacement = """apt-get update --allow-releaseinfo-change --allow-releaseinfo-change
 if [ $( is_in_apt polkitd ) -eq 1 ]; then
   sudo apt-get -y install polkitd
+fi
+if [ $( is_in_apt pkexec ) -eq 1 ]; then
+  sudo apt-get -y install pkexec
 fi"""
 new_text = text
 patterns = [
@@ -77,6 +78,9 @@ replacement = """  apt-get update --allow-releaseinfo-change
   apt-get install -y net-tools wireless-tools dhcpcd5
   if [ $( is_in_apt polkitd ) -eq 1 ]; then
     apt-get -y install polkitd
+  fi
+  if [ $( is_in_apt pkexec ) -eq 1 ]; then
+    apt-get -y install pkexec
   fi"""
 pattern = r"apt-get update --allow-releaseinfo-change\s+apt-get install -y net-tools wireless-tools dhcpcd5\s+if \[\s*\$\( is_in_apt policykit-1 \)\s*-eq\s*1\s*\];\s*then\s*apt-get -y install policykit-1\s*fi"
 new_text = re.sub(pattern, replacement, text, flags=re.MULTILINE)

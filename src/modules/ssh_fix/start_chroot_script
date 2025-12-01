@@ -10,8 +10,12 @@ source /common.sh
 install_cleanup_trap
 
 SSHD_CONFIG="/etc/ssh/sshd_config"
+SSH_CONFIG="/etc/ssh/ssh_config"
 
-if [[ -f "${SSHD_CONFIG}" ]]; then
-  # Remove invalid IPQoS directives which break SSH on some Armbian builds.
-  sed -i '/^\s*IPQoS\b/d' "${SSHD_CONFIG}"
-fi
+# Remove invalid/deprecated IPQoS directives and set a safe default
+for cfg in "${SSHD_CONFIG}" "${SSH_CONFIG}"; do
+  if [[ -f "${cfg}" ]]; then
+    sed -i '/^\s*IPQoS\b/d' "${cfg}"
+    echo "IPQoS throughput" >> "${cfg}"
+  fi
+done

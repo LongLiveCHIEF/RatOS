@@ -18,7 +18,7 @@ run_as_base() {
 
 pushd /home/${BASE_USER}
 echo_green "Installing DFU-util build dependencies"
-check_install_pkgs libusb-1.0-0-dev autoconf pandoc pkg-config make gcc
+check_install_pkgs libusb-1.0-0-dev autoconf automake pkg-config make gcc pandoc
 echo_green "Cloning and building DFU-util"
 # Fallback to GitLab mirror if the official SourceForge is down... which it often is..
 DFU_SRC="/home/${BASE_USER}/dfu-util"

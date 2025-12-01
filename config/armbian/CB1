@@ -9,6 +9,8 @@ BASE_ARCH="arm64"
 BASE_ADD_USER="yes"
 BASE_USER="pi"
 BASE_USER_PASSWORD="raspberry"
+BASE_IMAGE_ENLARGEROOT=10000
+#BASE_IMAGE_RESIZEROOT=600
 
 # Download Base Url
 DOWNLOAD_BASE_URL="https://armbian.lv.auroradev.org/dl/bigtreetech-cb1/archive"
@@ -17,23 +19,24 @@ DOWNLOAD_BASE_URL="https://armbian.lv.auroradev.org/dl/bigtreetech-cb1/archive"
 DOWNLOAD_URL_IMAGE="${DOWNLOAD_BASE_URL}/Armbian_25.11.1_Bigtreetech-cb1_trixie_current_6.12.58_minimal.img.xz"
 DOWNLOAD_URL_CHECKSUM="${DOWNLOAD_BASE_URL}/Armbian_25.11.1_Bigtreetech-cb1_trixie_current_6.12.58_minimal.img.xz.sha"
 
-
 # Compress not needed due compression done in workflow
 BASE_RELEASE_COMPRESS=no
 
 # Export variables
 export BASE_ARCH
-#export BASE_IMAGE_ENLARGEROOT
-#export BASE_IMAGE_RESIZEROOT
 export BASE_ADD_USER
 export BASE_USER
 export BASE_USER_PASSWORD
+export BASE_IMAGE_ENLARGEROOT
+#export BASE_IMAGE_RESIZEROOT
 export DOWNLOAD_URL_CHECKSUM
 export DOWNLOAD_URL_IMAGE
 export BASE_RELEASE_COMPRESS
 
 # Modules:
 # - deb_nameserver fixes DNS early in chroot
-# - pick ONE sudo policy (use password-for-sudo for releases)
-# - cb1config/cb1spi + hotspot_cb1 for CB1 specifics
-export MODULES="base,deb_nameserver,pkgupgrade(network,cb1config,klipper,node,is_req_preinstall,moonraker,cb1spi,ratos(mainsail,crowsnest,linear_movement_analysis,timelapse,klipperscreen,rpi_mcu,disable-services(hotspot_cb1),dfu-util),password-for-sudo),ssh_fix,postrename"
+# - hotspot_cb1 for CB1 specifics
+# - cb1spi module not used, since armbian-config can manage device tree overlays
+# - removed need for passwordless_sudo
+# - ssh_fix, added fixes from custompios dev branch
+export MODULES="base,deb_nameserver,pkgupgrade(network,cb1config,klipper,node,is_req_preinstall,moonraker,ratos(mainsail,crowsnest,linear_movement_analysis,timelapse,klipperscreen,rpi_mcu,disable-services(hotspot_cb1),dfu-util),password-for-sudo),ssh_fix,postrename"

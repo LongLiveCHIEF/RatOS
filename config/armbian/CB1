@@ -40,4 +40,4 @@ export BASE_RELEASE_COMPRESS
 # - removed need for passwordless_sudo
 # - ssh_fix, added fixes from custompios dev branch
 # - removed disable-services(hotspot_cb1) - AP removed
-export MODULES="base,deb_nameserver,pkgupgrade(network,cb1config,klipper,node,is_req_preinstall,moonraker,ratos(mainsail,crowsnest,linear_movement_analysis,timelapse,klipperscreen,rpi_mcu),dfu-util),password-for-sudo),ssh_fix,postrename"
+export MODULES="base,deb_nameserver,pkgupgrade(network,cb1config,klipper,node,is_req_preinstall,moonraker,ratos(mainsail,crowsnest,linear_movement_analysis,timelapse,klipperscreen,rpi_mcu,dfu-util),password-for-sudo),ssh_fix,postrename"

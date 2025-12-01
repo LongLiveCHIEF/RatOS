@@ -67,3 +67,12 @@ fi
 ## Step 6: Enable systemd service
 systemctl_if_exists enable network-configurator.service
 ## END
+
+## Step 7: Disable/stop systemd-networkd so wait-online does not block (NetworkManager is used)
+echo_green "Disabling systemd-networkd (using NetworkManager instead)..."
+for unit in systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service NetworkManager-wait-online.service; do
+    systemctl_if_exists stop "${unit}" || true
+    systemctl_if_exists disable "${unit}" || true
+    systemctl_if_exists mask "${unit}" || true
+done
+## END

@@ -12,7 +12,7 @@
 #### This File is distributed under GPLv3
 ####
 
-[[ -n "$MAINSAIL_DEPS" ]] || MAINSAIL_DEPS="nginx"
+[[ -n "$MAINSAIL_DEPS" ]] || MAINSAIL_DEPS="nginx unzip wget"
 [[ -n "$MAINSAIL_URL" ]] || MAINSAIL_URL=https://github.com/mainsail-crew/mainsail/releases/latest/download/mainsail.zip
 
 # mainsail.cfg repo

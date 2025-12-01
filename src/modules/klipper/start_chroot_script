@@ -39,11 +39,6 @@ run_as_base() {
     fi
 }
 
-# be extra nice to fragile networks (optional, helps with flaky runners)
-git config --global http.lowSpeedLimit 0
-git config --global http.lowSpeedTime 0
-git config --global http.postBuffer 524288000
-
 unpack /filesystem/root /
 
 echo_green "Installing Klipper and enable klippy Service ..."

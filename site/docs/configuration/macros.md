@@ -170,6 +170,8 @@ Use this variable to set name for the bed_mesh profile that RatOS calibrate and 
 | variable_enable_insert_detection                    | True / False      | True    | Enable the filament sensor insert detection.                              |
 | variable_enable_runout_detection                    | True / False      | True    | Enable the filament sensor runout detection.                              |
 | variable_enable_clog_detection                      | True / False      | True    | Enable the filament sensor clog detection.                                |
+| variable_toolhead_sensor_button_only_when_sensor_enabled | True / False | False   | Only trigger filament sensor button when the sensor is enabled.           |
+| variable_toolhead_detect_clog_only_when_sensor_enabled   | True / False | True    | Only detect clogs when the filament sensor is enabled.                    |
 | variable_unload_after_runout                        | True / False      | True    | Unload filament from toolhead after if runout has been detected.          |
 | variable_resume_after_insert                        | True / False      | True    | Auto resume a paused print after runout and insert.                       |
 | variable_purge_after_load                           | number            | 0       | Purge x mm after the filament has been loaded to the nozzle tip.          |
@@ -222,21 +224,64 @@ Use this variable to set name for the bed_mesh profile that RatOS calibrate and 
 
 `[gcode_macro RatOS]`
 
-| Name                                           | Possible Values | Default | Description                                               |
-| ---------------------------------------------- | --------------- | ------- | --------------------------------------------------------- |
-| variable_beacon_bed_mesh_scv                   | number          | 25      | Square corner velocity for beacon proximity bed meshing.  |
-| variable_beacon_contact_z_homing               | True / False    | False   | Use beacon contact for z-homing.                          |
-| variable_beacon_contact_z_calibration          | True / False    | False   | Use beacon contact z-calibration.                         |
-| variable_beacon_contact_calibration_location   | number          | 130     | Beacon contact z-calibration location.                    |
-| variable_beacon_contact_calibrate_margin_x     | number          | 30      | Beacon contact z-calibration x-margin.                    |
-| variable_beacon_contact_bed_mesh               | True / False    | False   | Use beacon contact for bed meshing.                       |
-| variable_beacon_contact_bed_mesh_samples       | number          | 2       | Beacon contact bed mesh probe samples.                    |
-| variable_beacon_contact_z_tilt_adjust          | True / False    | False   | Use beacon contact for z-tilting.                         |
-| variable_beacon_contact_z_tilt_adjust_samples  | number          | 2       | Beacon contact z-tilt probe samples.                      |
-| variable_beacon_contact_prime_probing          | True / False    | False   | Use beacon contact to probe for prime blobs.              |
-| variable_beacon_contact_calibration_temp       | number          | 150     | Beacon contact z-calibration nozzle temperature.          |
-| variable_beacon_contact_expansion_compensation | True / False    | False   | Use nozzle thermal expansion compensation.                |
-| variable_beacon_contact_expansion_multiplier   | number          | 1.0     | Multiplier for the nozzle thermal expansion compensation. |
+### Basic Beacon Settings
+
+| Name                                     | Possible Values | Default | Description                                                                                                                          |
+| ---------------------------------------- | --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| variable_beacon_bed_mesh_scv             | number          | 25      | Square corner velocity for beacon proximity bed meshing.                                                                             |
+| variable_beacon_contact_prime_probing    | True / False    | True    | Use beacon contact to probe for prime blobs.                                                                                         |
+| variable_beacon_contact_expansion_compensation | True / False  | True  | Enable hotend thermal expansion compensation.                                                                                        |
+
+### Beacon Contact Mode Settings
+
+:::warning
+Using contact mode for homing, bed mesh, or z-tilt is not recommended on textured surfaces due to potential significant variation in contact measurements.
+:::
+
+| Name                                      | Possible Values | Default | Description                                                                                                                         |
+| ----------------------------------------- | --------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| variable_beacon_contact_z_homing          | True / False    | False   | Make all G28 calls use contact instead of proximity scan. Not recommended on textured surfaces.                                     |
+| variable_beacon_contact_bed_mesh          | True / False    | False   | Bed mesh with contact method. Not recommended on textured surfaces.                                                                 |
+| variable_beacon_contact_bed_mesh_samples  | number          | 2       | Beacon contact bed mesh probe samples.                                                                                              |
+| variable_beacon_contact_z_tilt_adjust     | True / False    | False   | Z-tilt adjust with contact method. Not recommended on textured surfaces.                                                            |
+| variable_beacon_contact_z_tilt_adjust_samples | number      | 2       | Beacon contact z-tilt probe samples.                                                                                                |
+
+### Beacon True Zero Settings
+
+| Name                                                   | Possible Values | Default | Description                                                                                                                                                    |
+| ------------------------------------------------------ | --------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| variable_beacon_contact_start_print_true_zero          | True / False    | True    | Use contact to determine true Z=0 for the last homing move during START_PRINT.                                                                                 |
+| variable_beacon_contact_start_print_true_zero_fuzzy_position | True / False | True  | Use a randomized position for the true zero contact measurement to avoid creating a wear mark on the bed surface.                                              |
+| variable_beacon_contact_wipe_before_true_zero          | True / False    | True    | Enable nozzle wipe at Y10 before true zeroing.                                                                                                                 |
+| variable_beacon_contact_true_zero_temp                 | number          | 150     | Nozzle temperature for true zeroing. WARNING: if using a smooth PEI sheet, be careful with the temperature.                                                    |
+
+### Beacon Model Calibration
+
+| Name                                             | Possible Values | Default | Description                                                                                                                                                  |
+| ------------------------------------------------ | --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| variable_beacon_contact_calibrate_model_on_print | True / False    | True    | Calibrate a new beacon model every print. Recommended especially if you often swap build plates with different surface types. This effectively disables z_offset on the beacon model since a new one will be calibrated every print, but True Zero replaces the model offset anyway. |
+
+### Beacon Scan Compensation
+
+| Name                                                        | Possible Values | Default | Description                                                                                                                                                                                |
+| ----------------------------------------------------------- | --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| variable_beacon_scan_compensation_enable                    | True / False    | False   | Enable beacon scan compensation to correct proximity measurements based on a compensation mesh.                                                                                            |
+| variable_beacon_scan_compensation_profile                   | string          | "auto"  | The bed mesh profile name identifying the scan compensation mesh to use, or "auto" to automatically select the most appropriate profile based on bed temperature.                          |
+| variable_beacon_scan_compensation_desired_spacing           | number          | 10      | The desired spacing between probe points in mm for compensation mesh creation. Strongly recommended to leave at default. The actual spacing depends on probe-able region and beacon offset. |
+| variable_beacon_scan_compensation_bed_temp_mismatch_is_error | True / False   | False   | If True, attempting to use a compensation mesh calibrated for a significantly different bed temperature will raise an error. Otherwise, a warning is reported.                             |
+| variable_beacon_scan_method_automatic                       | True / False    | False   | Enable the METHOD=automatic scan option. Generally not recommended, and specifically not recommended when beacon_scan_compensation_enable is enabled.                                      |
+
+### Beacon Adaptive Heat Soak
+
+Adaptive heat soak monitors thermal stability of the printer using Beacon proximity measurements. It waits for the printer to reach thermal stability before starting the print, reducing the amount of thermal Z deflection that occurs during the first layer.
+
+| Name                                                          | Possible Values | Default | Description                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------- | --------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| variable_beacon_adaptive_heat_soak                            | True / False    | False   | Enable adaptive heat soaking based on beacon proximity measurements. Enabled by default for V-Core 4 variants. Other printers can opt-in, but proceed with caution as aspects of the algorithm are currently tuned for the V-Core 4 design.                                     |
+| variable_beacon_adaptive_heat_soak_max_wait                   | number          | 5400    | The maximum time in seconds to wait for adaptive heat soaking to complete. This is a sanity limit to prevent waiting indefinitely.                                                                                                                                              |
+| variable_beacon_adaptive_heat_soak_extra_wait_after_completion | number         | 0       | Extra time in seconds to wait after adaptive heat soaking is considered complete. Typically not needed, but can be useful for printers with very stable gantry designs (such as steel rail on steel tube) where the adaptive heat soak completes before the bed edges stabilize. |
+| variable_beacon_adaptive_heat_soak_layer_quality              | number (1-5)    | 3       | Controls the tradeoff between soak time and first layer quality. 1 = rough (fastest soak), 2 = draft, 3 = normal, 4 = high, 5 = maximum (slowest soak, best quality). Longer soak times leave less thermal deflection during the print.                                        |
+| variable_beacon_adaptive_heat_soak_maximum_first_layer_duration | number        | 1800    | Maximum first layer print time in seconds for your gcode files. Must be set correctly. If you print a significantly longer first layer than this value, excessive thermal deflection may occur. Value must be between 60 and 7200 seconds.                                      |
 
 ## Stowable probes
 
@@ -318,6 +363,14 @@ Runs at the start of a new print feature. This is useful for running custom G-Co
 ### \_USER_END_FEATURE
 
 Runs at the end of a print feature. This is useful for running custom G-Code based on the feature that is being printed. See the [PrusaSlicer Configuration](/docs/slicers#change-settings-based-on-feature-optional) documentation for more information.
+
+### \_USER_BEFORE_IDLE_TIMEOUT
+
+Runs before the printer enters idle timeout mode.
+
+### \_USER_AFTER_IDLE_TIMEOUT
+
+Runs after the printer enters idle timeout mode.
 
 ## Internal macro hooks
 

@@ -41,7 +41,7 @@ The automated beacon calibration will run the following calibrations and tests, 
 - [Beacon latency check](#2-beacon-latency-check)
 - [Temperature expansion calibration](#3-temperature-expansion-calibration) (for non IDEX printer)
 - [Final calibration](#4-final-calibration)
-- [Beacon scan compensation](#5-beta-automated-beacon-scan-compensation) _if [beacon_scan_compensation_enable: True](#7-ratos-configuration) a reference mesh will be created if needed_
+- [Beacon scan compensation](#5-beacon-scan-compensation) - _if scan compensation is enabled, a compensation mesh will be created if needed_
 
 All calibration results will be saved automatically, and no user action is required. Klipper will restart on its own after the calibration is complete.
 
@@ -139,7 +139,7 @@ Use your target temperatures for the `BED_TEMP` and `CHAMBER_TEMP` parameters. T
 
 - Run `SAVE_CONFIG` to save the model to `printer.cfg`.
 
-## 5. BETA! Automated Beacon Scan Compensation
+## 5. Beacon Scan Compensation
 
 With RatOS, you can automatically compensate for gantry twist across the entire build plate and inaccuracies in the build sheet's material thickness that cause ripple effects on scanned bed meshes.
 
@@ -169,9 +169,9 @@ Back right: -4.167238μm
 
 Check your build plate:
 
-- Create a scan bed mesh and save it as `Scan1`
+- Create a scan bed mesh and save it as a custom profile name
 - Rotate the build plate 90 degrees (rotate only the sheet, not the bed itself)
-- Create a second scan bed mesh and save it as `Scan2`
+- Create a second scan bed mesh and save it with a different profile name
 - If you observe that the mesh pattern follows the build plate when rotated, you need this compensation
 
 Scan 1
@@ -182,66 +182,177 @@ Scan 2 with the build plate rotated by 90°
 
 ![Scan 2: 90 degrees rotation](_media/90degree.png)
 
-Since this feature is still in beta, you need to activate it manually by copying the following configuration to `printer.cfg`:
+### Enabling Scan Compensation
 
-```
+To enable scan compensation, add the following to your `printer.cfg`:
+
+```properties
 [gcode_macro RatOS]
-variable_beacon_scan_compensation_enable: True          # Enables the beacon scan compensation
+variable_beacon_scan_compensation_enable: True          # Enables beacon scan compensation
+variable_beacon_scan_compensation_profile: "auto"       # Use "auto" for automatic selection based on bed temperature
 ```
 
-1. Run `BEACON_CREATE_SCAN_COMPENSATION_MESH BED_TEMP=85 CHAMBER_TEMP=45 PROFILE=Contact` to create a contact reference bed mesh.
+### Creating Compensation Meshes
 
-Use your target temperatures for the `BED_TEMP` and `CHAMBER_TEMP` parameters. The command will home your printer, heat it to the target temperatures, wait for heat soaking, and run the calibration automatically.
+1. Run `BEACON_CREATE_SCAN_COMPENSATION_MESH BED_TEMP=85 CHAMBER_TEMP=45` to create a compensation mesh.
 
-2. You'll need a reference contact mesh for each build plate and each time your target bed temperature changes more than 10 or 20 degrees (TBD).
+Use your target temperatures for the `BED_TEMP` and `CHAMBER_TEMP` parameters. The command will home your printer, heat it to the target temperatures, wait for thermal stabilization, and create the compensation mesh automatically.
 
-For example, if I primarily print ABS at 110°C and PETG at 80°C both on the same powder-coated sheet, I would need two contact meshes - one for 80°C and one for 110°C. If I print at 90°C and 110°C, I might be able to use a single contact mesh at 100°C. You can create separate compensation meshes by running the `BEACON_CREATE_SCAN_COMPENSATION_MESH` command with the `PROFILE` parameter. For example: `BEACON_CREATE_SCAN_COMPENSATION_MESH PROFILE="PEI_PC_90"`
+2. You'll need a compensation mesh for each build plate and for different bed temperature ranges.
 
-3. Set the profile name for the desired reference mesh profile in the gcode variable `beacon_scan_compensation_profile`. The default profile name is `Contact`.
+The compensation mesh creation process automatically determines the appropriate mesh name based on the bed temperature. When using `variable_beacon_scan_compensation_profile: "auto"`, RatOS will automatically select the most appropriate compensation mesh based on your current bed temperature.
 
-- If `BEACON_CREATE_SCAN_COMPENSATION_MESH` throws an error while meshing, you can simply run `BED_MESH_CALIBRATE PROBE_METHOD=contact USE_CONTACT_AREA=1 SAMPLES=2 SAMPLES_DROP=1 SAMPLES_TOLERANCE_RETRIES=10 PROFILE=Contact`. This will skip the heat soaking part which is no longer needed in this case.
+Alternatively, you can specify a custom profile name: `BEACON_CREATE_SCAN_COMPENSATION_MESH BED_TEMP=85 PROFILE="PEI_PC_85"`
 
-- If the feature is enabled, it will automatically compensate while printing - no additional user action is required. If you want to see the compensation for a manually created mesh, open the mesh in Mainsail and run `BEACON_APPLY_SCAN_COMPENSATION PROFILE=Contact` in the console. This will update the mesh visualization in Mainsail.
+3. If the feature is enabled, it will automatically compensate during printing - no additional user action is required.
 
 Click the image to open the video and see the results in action
 
 [<img src="https://img.youtube.com/vi/qjRhAHsX0Hc/maxresdefault.jpg" width="50%" />](https://youtu.be/qjRhAHsX0Hc)
 
+## 5a. Adaptive Heat Soak
+
+Adaptive heat soak uses Beacon proximity measurements to monitor the thermal stability of your printer. Instead of using a fixed heat soak time, it waits until the printer reaches thermal stability before starting the print, reducing thermal Z deflection during the first layer.
+
+:::info
+Adaptive heat soak is enabled by default for V-Core 4 printers. Other printers can opt-in, but proceed with caution as the algorithm is currently tuned for the V-Core 4 design.
+:::
+
+### How It Works
+
+The system continuously measures the rate of Z-axis change using Beacon proximity data. When the rate of change falls below a calculated threshold and remains stable, the heat soak is considered complete. The threshold is automatically calculated based on your layer quality preference and maximum first layer duration.
+
+### Configuration
+
+To enable adaptive heat soak, add this to your `printer.cfg`:
+
+```properties
+[gcode_macro RatOS]
+variable_beacon_adaptive_heat_soak: True
+variable_beacon_adaptive_heat_soak_layer_quality: 3              # 1=rough (fast), 5=maximum (slow, best)
+variable_beacon_adaptive_heat_soak_maximum_first_layer_duration: 1800  # Maximum first layer time in seconds
+variable_beacon_adaptive_heat_soak_max_wait: 5400                # Maximum wait time (safety limit)
+```
+
+### Layer Quality Settings
+
+The layer quality setting controls the tradeoff between soak time and first layer quality:
+
+- **1 (Rough)**: Fastest soak time, some oversquish may develop during first layer
+- **2 (Draft)**: Faster soak, minor first layer imperfections acceptable  
+- **3 (Normal)**: Balanced soak time and quality (default)
+- **4 (High)**: Longer soak, minimal first layer imperfections
+- **5 (Maximum)**: Slowest soak, best first layer quality and Z dimensional accuracy
+
+### Important: Maximum First Layer Duration
+
+The `maximum_first_layer_duration` setting must be set correctly for your prints. This should be the longest first layer time you expect to print.
+
+For example:
+- If your typical first layers take up to 30 minutes, set this to `1800` (seconds)
+- For very large prints with 60-minute first layers, set this to `3600`
+
+:::warning
+If you print a first layer significantly longer than this value, excessive thermal deflection may occur during the print, leading to poor first layer quality, print failure, or even damage to the bed.
+:::
+
+### Manual Use
+
+The adaptive heat soak runs automatically during `START_PRINT` when enabled. You can also run it manually:
+
+```gcode
+BEACON_WAIT_FOR_PRINTER_HEAT_SOAK LAYER_QUALITY=3 MAXIMUM_FIRST_LAYER_DURATION=1800
+```
+
+Parameters:
+- `LAYER_QUALITY`: 1-5 (default from configuration)
+- `MAXIMUM_FIRST_LAYER_DURATION`: Time in seconds, 60-7200 (default from configuration)
+- `MINIMUM_WAIT`: Minimum wait time in seconds (default: 0)
+- `MAXIMUM_WAIT`: Maximum wait time in seconds (default from configuration)
+
 ## 6. First print and fine tuning
 
 1. Print a 150x30mm single layer rectangle in the middle of the build plate.
 2. While printing, fine-tune using baby stepping.
-3. Run `SAVE_Z_OFFSET` to save the changes. Don't click the button - type `SAVE_Z_OFFSET` into the console.
+3. Run `Z_OFFSET_APPLY_PROBE` to save the changes. Don't click the button - type `Z_OFFSET_APPLY_PROBE` into the console.
 
 ## 7. RatOS configuration
 
-The Beacon contact feature is activated by default, so no configuration is required. However, you can override the settings to enable additional Beacon contact features if desired. Simply copy and paste the complete configuration block below into your printer.cfg file and modify the settings as needed.
+The Beacon contact feature is activated by default, so no configuration is required. However, you can override the settings to enable additional Beacon contact features if desired. Simply copy and paste the relevant configuration sections below into your printer.cfg file and modify the settings as needed.
 
-```
-#####
-# Beacon probe configuration
-#####
+For a complete reference of all Beacon-related variables, see the [Beacon probe section in the macros documentation](/docs/configuration/macros#beacon-probe).
+
+### Basic Configuration
+
+```properties
 [gcode_macro RatOS]
 variable_beacon_bed_mesh_scv: 25                        # Square corner velocity for bed meshing with proximity method
-variable_beacon_contact_z_homing: False                 # Makes all G28 calls use contact instead of proximity scan
-variable_beacon_contact_start_print_true_zero: True     # Uses contact to determine true Z=0 for the last homing move during START_PRINT
-variable_beacon_contact_wipe_before_true_zero: True     # Enables a nozzle wipe at Y10 before true zeroing
-variable_beacon_contact_true_zero_temp: 150             # Nozzle temperature for true zeroing
-                                                        # WARNING: If you're using a smooth PEI sheet, be careful with the temperature
-
 variable_beacon_contact_prime_probing: True             # Probes for priming with contact method
-variable_beacon_contact_expansion_compensation: True    # Enables the nozzle thermal expansion compensation
+variable_beacon_contact_expansion_compensation: True    # Enables hotend thermal expansion compensation
+```
 
+### True Zero Settings
+
+```properties
+[gcode_macro RatOS]
+variable_beacon_contact_start_print_true_zero: True     # Uses contact to determine true Z=0 during START_PRINT
+variable_beacon_contact_start_print_true_zero_fuzzy_position: True  # Randomizes true zero position to avoid wear marks
+variable_beacon_contact_wipe_before_true_zero: True     # Enables nozzle wipe before true zeroing
+variable_beacon_contact_true_zero_temp: 150             # Nozzle temperature for true zeroing
+                                                        # WARNING: If using a smooth PEI sheet, be careful with temperature
+```
+
+### Contact Mode Settings (Not Recommended)
+
+:::warning
+Using contact mode for homing, bed mesh, or z-tilt is not recommended on textured surfaces due to potential significant variation in contact measurements.
+:::
+
+```properties
+[gcode_macro RatOS]
+variable_beacon_contact_z_homing: False                 # Makes all G28 calls use contact instead of proximity scan
 variable_beacon_contact_bed_mesh: False                 # Performs bed mesh with contact method
 variable_beacon_contact_bed_mesh_samples: 2             # Number of probe samples for contact bed mesh
-
 variable_beacon_contact_z_tilt_adjust: False            # Performs z-tilt adjust with contact method
 variable_beacon_contact_z_tilt_adjust_samples: 2        # Number of probe samples for contact z-tilt adjust
+```
 
-variable_beacon_scan_compensation_enable: False         # Enables the Beacon scan compensation
-variable_beacon_scan_compensation_profile: "Contact"    # The contact profile name for scan compensation
-variable_beacon_scan_compensation_probe_count: 15,15    # The contact probe count for scan compensation
+### Model Calibration
 
+```properties
+[gcode_macro RatOS]
+variable_beacon_contact_calibrate_model_on_print: True  # Calibrate a new beacon model every print
+                                                        # Recommended, especially if you swap build plates
+```
+
+### Scan Compensation
+
+```properties
+[gcode_macro RatOS]
+variable_beacon_scan_compensation_enable: False         # Enables beacon scan compensation
+variable_beacon_scan_compensation_profile: "auto"       # Use "auto" for automatic selection or specify profile name
+variable_beacon_scan_compensation_desired_spacing: 10   # Desired spacing between probe points (mm)
+variable_beacon_scan_compensation_bed_temp_mismatch_is_error: False  # Raise error on temp mismatch
+variable_beacon_scan_method_automatic: False            # Enable METHOD=automatic scan option (not recommended)
+```
+
+### Adaptive Heat Soak
+
+Adaptive heat soak monitors thermal stability using Beacon proximity measurements, reducing thermal Z deflection during the first layer.
+
+```properties
+[gcode_macro RatOS]
+variable_beacon_adaptive_heat_soak: False               # Enable adaptive heat soaking (enabled by default on V-Core 4)
+variable_beacon_adaptive_heat_soak_max_wait: 5400       # Maximum wait time in seconds
+variable_beacon_adaptive_heat_soak_extra_wait_after_completion: 0  # Extra wait time after soak completes
+variable_beacon_adaptive_heat_soak_layer_quality: 3     # Quality level: 1=rough (fast), 5=maximum (slow, best quality)
+variable_beacon_adaptive_heat_soak_maximum_first_layer_duration: 1800  # Maximum first layer time (60-7200 seconds)
+```
+
+### Advanced Settings
+
+```properties
+[gcode_macro RatOS]
 variable_beacon_contact_poke_bottom_limit: -1           # The bottom limit for the contact poke test
 ```
 
@@ -262,3 +373,7 @@ The delta value represents your backlash in millimeters.
 ### Q: How can I set different Z-offsets for different filaments?
 
 A: If you want to have different Z-offsets for different filament profiles, you can use `SET_GCODE_OFFSET Z_ADJUST=+0.01` for positive adjustments or `SET_GCODE_OFFSET Z_ADJUST=-0.01` for negative adjustments in your filament profile's custom G-code section. Note: Using `Z` instead of `Z_ADJUST` will cause Klipper to replace all previously set Z-offset adjustments, including hotend expansion compensation, with your provided value (which is not recommended).
+
+### Q: What happened to SAVE_Z_OFFSET?
+
+A: The `SAVE_Z_OFFSET` command has been replaced with `Z_OFFSET_APPLY_PROBE`. Use `Z_OFFSET_APPLY_PROBE` to save your Z-offset adjustments after baby stepping.

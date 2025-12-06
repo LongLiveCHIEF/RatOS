@@ -252,20 +252,15 @@ Using contact mode for homing, bed mesh, or z-tilt is not recommended on texture
 | ------------------------------------------------------ | --------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | variable_beacon_contact_start_print_true_zero          | True / False    | True    | Use contact to determine true Z=0 for the last homing move during START_PRINT.                                                                                 |
 | variable_beacon_contact_start_print_true_zero_fuzzy_position | True / False | True  | Use a randomized position for the true zero contact measurement to avoid creating a wear mark on the bed surface.                                              |
+| variable_beacon_contact_calibrate_model_on_true_zero | True / False    | True    | Calibrate a new beacon model every print. Recommended especially if you often swap build plates with different surface types. This effectively disables z_offset on the beacon model since a new one will be calibrated every print, but True Zero replaces the model offset anyway. |
 | variable_beacon_contact_wipe_before_true_zero          | True / False    | True    | Enable nozzle wipe at Y10 before true zeroing.                                                                                                                 |
 | variable_beacon_contact_true_zero_temp                 | number          | 150     | Nozzle temperature for true zeroing. WARNING: if using a smooth PEI sheet, be careful with the temperature.                                                    |
-
-### Beacon Model Calibration
-
-| Name                                             | Possible Values | Default | Description                                                                                                                                                  |
-| ------------------------------------------------ | --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| variable_beacon_contact_calibrate_model_on_print | True / False    | True    | Calibrate a new beacon model every print. Recommended especially if you often swap build plates with different surface types. This effectively disables z_offset on the beacon model since a new one will be calibrated every print, but True Zero replaces the model offset anyway. |
 
 ### Beacon Scan Compensation
 
 | Name                                                        | Possible Values | Default | Description                                                                                                                                                                                |
 | ----------------------------------------------------------- | --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| variable_beacon_scan_compensation_enable                    | True / False    | False   | Enable beacon scan compensation to correct proximity measurements based on a compensation mesh.                                                                                            |
+| variable_beacon_scan_compensation_enable                    | True / False    | True   | Enable beacon scan compensation to correct proximity measurements based on a compensation mesh.                                                                                            |
 | variable_beacon_scan_compensation_profile                   | string          | "auto"  | The bed mesh profile name identifying the scan compensation mesh to use, or "auto" to automatically select the most appropriate profile based on bed temperature.                          |
 | variable_beacon_scan_compensation_desired_spacing           | number          | 10      | The desired spacing between probe points in mm for compensation mesh creation. Strongly recommended to leave at default. The actual spacing depends on probe-able region and beacon offset. |
 | variable_beacon_scan_compensation_bed_temp_mismatch_is_error | True / False   | False   | If True, attempting to use a compensation mesh calibrated for a significantly different bed temperature will raise an error. Otherwise, a warning is reported.                             |

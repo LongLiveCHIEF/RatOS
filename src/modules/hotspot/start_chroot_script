@@ -10,12 +10,12 @@ set -e
 
 source /common.sh
 
-apt-get update --allow-releaseinfo-change
-apt-get -y purge dns-root-data
-apt-get -y install iw
+sudo apt-get update --allow-releaseinfo-change
+sudo apt-get -y purge dns-root-data
+sudo apt-get -y install iw
 
-apt-get purge dns-root-data
-apt-get install -y hostapd dnsmasq iptables
+sudo apt-get purge dns-root-data
+sudo apt-get install -y hostapd dnsmasq iptables
 
 systemctl disable hostapd
 systemctl disable dnsmasq

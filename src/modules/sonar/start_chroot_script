@@ -12,7 +12,7 @@
 # shellcheck enable=requires-variable-braces
 
 # Error handling
-set -Ee
+set -Eex
 
 # shellcheck disable=SC1091
 source /common.sh
@@ -25,7 +25,7 @@ SR_BUILD_PACKAGE_FILE="/tmp/sr_packages.lst"
 echo_green "Installing sonar ..."
 
 ## Force apt update
-apt-get update
+sudo apt-get update
 ## Make sure 'git' is installed!
 check_install_pkgs git
 

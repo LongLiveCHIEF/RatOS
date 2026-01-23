@@ -13,7 +13,7 @@
 # shellcheck enable=requires-variable-braces
 
 # Error handling
-set -Ee
+set -Eex
 
 # shellcheck disable=SC1091
 source /common.sh
@@ -23,7 +23,7 @@ install_cleanup_trap
 echo_green "Installing sonar ..."
 
 ## Step 1: Force apt update
-apt-get update --allow-releaseinfo-change
+sudo apt-get update --allow-releaseinfo-change
 
 ## Step 2: Make sure 'git' is installed!
 check_install_pkgs git

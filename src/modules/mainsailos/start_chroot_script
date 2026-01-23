@@ -10,7 +10,7 @@
 
 # shellcheck enable=require-variable-braces
 ## Source error handling, leave this in place
-set -Ee
+set -Eex
 
 # Set DEBIAN_FRONTEND to noninteractive
 if [[ "${DEBIAN_FRONTEND}" != "noninteractive" ]]; then
@@ -54,7 +54,7 @@ fi
 ## END Step 2
 
 ## Step 3: Install CANBoot Dependency
-apt-get update --allow-releaseinfo-change
+sudo apt-get update --allow-releaseinfo-change
 # shellcheck disable=SC2086
 check_install_pkgs ${MAINSAILOS_DEPS}
 ## END Step 3

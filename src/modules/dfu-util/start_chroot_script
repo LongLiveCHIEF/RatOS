@@ -9,7 +9,7 @@ install_cleanup_trap
 
 pushd /home/${BASE_USER}
 echo_green "Installing DFU-util build dependencies"
-apt-get -y install libusb-1.0-0-dev autoconf pandoc
+sudo apt-get -y install libusb-1.0-0-dev autoconf pandoc
 echo_green "Cloning and building DFU-util"
  # Fallback to GitLab mirror if the official SourceForge is down... which it often is..
 git clone git://git.code.sf.net/p/dfu-util/dfu-util || git clone https://gitlab.com/dfu-util/dfu-util.git
@@ -18,6 +18,6 @@ pushd /home/${BASE_USER}/dfu-util
 ./configure
 make install
 echo_green "Removing DFU-util build dependencies"
-apt-get -y purge pandoc
+sudo apt-get -y purge pandoc
 popd
 popd

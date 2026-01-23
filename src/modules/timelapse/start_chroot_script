@@ -57,7 +57,7 @@ echo_green "Installing moonraker-timelapse plugin ..."
 ## Install all deps at once for time consumption reasons.
 ## APT: Update Repo Database and install Dependencies
 # Force apt update
-apt-get update
+sudo apt-get update
 echo_green "Installing moonraker-timelapse Dependencies ..."
 ## Disabling shellcheck SC2086, because we want "wordsplitting"
 # shellcheck disable=SC2086

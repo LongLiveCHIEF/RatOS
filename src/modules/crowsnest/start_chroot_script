@@ -12,7 +12,7 @@
 # shellcheck enable=requires-variable-braces
 
 # Error handling
-set -Ee
+set -Eex
 
 # shellcheck disable=SC1091
 source /common.sh
@@ -43,7 +43,7 @@ get_pkglist() {
 echo_green "Installing crowsnest ..."
 
 ## Force apt update
-apt-get update
+sudo apt-get update
 ## Make sure 'git' is installed!
 check_install_pkgs git
 

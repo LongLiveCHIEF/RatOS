@@ -16,7 +16,7 @@
 # sources of files can be found here: https://github.com/armbian/build
 
 # Source error handling, leave this in place
-set -Ee
+set -Eex
 
 # Source CustomPIOS common.sh
 # shellcheck disable=SC1091

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#### MainsailOS Specific Tweaks for armbian images
+####
+#### Written by Stephan Wendel aka KwadFan <me@stephanwe.de>
+#### Copyright 2023 - till today
+#### https://github.com/mainsail-crew/MainsailOS
+####
+#### This File is distributed under GPLv3
+####
+
+# shellcheck enable=require-variable-braces
+# Source error handling, leave this in place
+set -Ee
+
+# Source CustomPIOS common.sh
+# shellcheck disable=SC1091
+source /common.sh
+install_cleanup_trap
+
+echo "Removing deprecated bullseye-backports source from apt sources..."
+if [[ -f "/etc/apt/sources.list" ]]; then
+    sudo sed -i '/bullseye-backports/d' /etc/apt/sources.list
+fi

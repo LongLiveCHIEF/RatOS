@@ -43,6 +43,7 @@ if_group_exists_run() {
 # Will be removed in cleanup
 echo "${BASE_USER} ALL=(ALL:ALL) NOPASSWD:ALL" >> /etc/sudoers
 
+echo "DEBUG: Starting armbian start_chroot_script"
 ## Step 1: Install armbian specific packages
 apt update
 # shellcheck disable=SC2086

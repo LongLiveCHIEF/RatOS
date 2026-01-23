@@ -9,10 +9,10 @@ export BASE_BOOT_MOUNT_PATH
 export PATH=$PATH:$CUSTOM_PI_OS_PATH
 
 echo "Installing CustomPiOS dependencies from $DIR"
-ls -al "${CUSTOM_PI_OS_PATH}"
+ls -al "$DIR"
 echo "Removing deprecated bullseye-backports source from apt sources..."
-sed -i '/bullseye-backports/d' "${CUSTOM_PI_OS_PATH}/etc/apt/sources.list"
-sed -i '/bullseye-backports/d' "${CUSTOM_PI_OS_PATH}/etc/apt/sources.list.d/*"
+sed -i '/bullseye-backports/d' "${DIR}/etc/apt/sources.list"
+sed -i '/bullseye-backports/d' "${DIR}/etc/apt/sources.list.d/*"
 apt-get install -y --no-install-recommends \
         ca-certificates \
         sudo \
